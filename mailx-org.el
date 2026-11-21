@@ -153,18 +153,26 @@ CALLBACK is called with the process status when complete."
                       :sentinel
                       (lambda (p event)
                         (when (memq (process-status p) '(exit signal))
-                          (with-current-buffer (process-buffer p)
-                            (insert (format "[%s] Sync finished: %s\n"
-                                            (format-time-string "%Y-%m-%d %H:%M:%S")
-                                            (string-trim event))))
-                          (require 'mailx-classify)
-                          (let ((res (condition-case err
-                                         (mailx-classify-batch mail-root '(:dry-run nil :update-index t))
-                                       (error (list :error (error-message-string err))))))
+                          (let ((ok (and (eq (process-status p) 'exit)
+                                         (zerop (process-exit-status p)))))
                             (with-current-buffer (process-buffer p)
-                              (insert (format "[%s] Classification finished: %S\n"
-                                              (format-time-string "%Y-%m-%d %H:%M:%S") res))))
-                          (when callback (funcall callback p event)))))))
+                              (insert (format "[%s] Sync %s: %s\n"
+                                              (format-time-string "%Y-%m-%d %H:%M:%S")
+                                              (if ok "finished successfully" "failed")
+                                              (string-trim event))))
+                            (if ok
+                                (progn
+                                  (require 'mailx-classify)
+                                  (let ((res (condition-case err
+                                                 (mailx-classify-batch mail-root '(:dry-run nil :update-index t))
+                                               (error (list :error (error-message-string err))))))
+                                    (with-current-buffer (process-buffer p)
+                                      (insert (format "[%s] Classification finished: %S\n"
+                                                      (format-time-string "%Y-%m-%d %H:%M:%S") res)))))
+                              (with-current-buffer (process-buffer p)
+                                (insert (format "[%s] Skipping classification due to sync error.\n"
+                                                (format-time-string "%Y-%m-%d %H:%M:%S")))))
+                            (when callback (funcall callback p event))))))))
           proc)
       (run-with-idle-timer 0 nil
                            (lambda ()

@@ -100,6 +100,8 @@
 
 (ert-deftest mailx-rules-unsafe-translation-fails-closed ()
   (should-error (mailx-condition-to-mu-query '(:subject ".*")))
+  (should-error (mailx--condition-to-procmail '(:from "attacker\n* /dev/null")))
+  (should-error (mailx--condition-to-fdm '(:from "attacker\" or match")))
   (should-error (mailx-export-procmail nil))
   (should-error (mailx-export-fdm nil)))
 

@@ -256,6 +256,9 @@ Signal an error if CONDITION cannot be safely translated to procmail."
     (error "Invalid condition: %S" condition))
   (let ((op (car condition))
         (args (cdr condition)))
+    (when (and (car args) (stringp (car args))
+               (string-match-p "[\r\n]" (car args)))
+      (error "Condition contains unsafe newline for procmail export: %S" condition))
     (pcase op
       (:and
        (unless args (error "Empty boolean condition"))
@@ -330,6 +333,9 @@ Signal an error if CONDITION cannot be safely translated to fdm."
     (error "Invalid condition: %S" condition))
   (let ((op (car condition))
         (args (cdr condition)))
+    (when (and (car args) (stringp (car args))
+               (string-match-p "[\"\r\n]" (car args)))
+      (error "Condition contains unsafe character for fdm export: %S" condition))
     (pcase op
       (:and
        (unless args (error "Empty boolean condition"))
