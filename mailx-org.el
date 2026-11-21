@@ -72,25 +72,21 @@
                      (url-hexify-string id))
        :description (or (plist-get msg :subject) id)))))
 
-;;;###autoload
-(defun mailx-org-setup ()
-  "Register context-aware mail links with Org."
-  (org-link-set-parameters "mailx" :follow #'mailx-org-follow-link
-                           :store #'mailx-org-store-link))
-
-(declare-function mailx-current-maildir "mailx" ())
-(declare-function mailx-refile-folder "mailx" (msg))
-(declare-function mailx-stamp-and-move "mailx-classify" (path root target-folder tier &optional tags coordination))
-(declare-function mailx-classify-batch "mailx-classify" (root &optional options))
-(declare-function org-capture "org-capture" (&optional goto keys))
-
+(defvar org-capture-templates nil)
 (defvar org-note-abort)
 
 (defgroup mailx-org nil
   "Org integration for mailx."
   :group 'mail)
 
-(defcustom mailx-org-capture-template-key nil
+(defcustom mailx-org-capture-template
+  '("m" "Mail task" entry (file+headline "planner.org" "Tasks")
+    "* TODO %a\n%i%?" :prepend t :kill-buffer t)
+  "Org capture template registered by `mailx-org-setup'."
+  :type 'sexp
+  :group 'mailx-org)
+
+(defcustom mailx-org-capture-template-key "m"
   "Org capture template key to use for `mailx-capture-task'.
 If nil, `org-capture' will prompt for a template."
   :type '(choice (const :tag "Prompt" nil) string)
@@ -100,6 +96,34 @@ If nil, `org-capture' will prompt for a template."
   "Buffer name for background mail sync and classification."
   :type 'string
   :group 'mailx-org)
+
+;;;###autoload
+(defun mailx-org-setup ()
+  "Register context-aware mail links and capture template with Org."
+  (org-link-set-parameters "mailx" :follow #'mailx-org-follow-link
+                           :store #'mailx-org-store-link)
+  (when (and (boundp 'org-capture-templates) mailx-org-capture-template)
+    (let ((key (car mailx-org-capture-template)))
+      (setq org-capture-templates
+            (cons mailx-org-capture-template
+                  (seq-remove (lambda (el) (equal (car el) key))
+                              org-capture-templates))))))
+
+;;;###autoload
+(defun mailx-org-teardown ()
+  "Unregister context-aware mail links and capture template from Org."
+  (org-link-set-parameters "mailx" :follow nil :store nil)
+  (when (and (boundp 'org-capture-templates) mailx-org-capture-template)
+    (let ((key (car mailx-org-capture-template)))
+      (setq org-capture-templates
+            (seq-remove (lambda (el) (equal (car el) key))
+                        org-capture-templates)))))
+
+(declare-function mailx-current-maildir "mailx" ())
+(declare-function mailx-refile-folder "mailx" (msg))
+(declare-function mailx-stamp-and-move "mailx-classify" (path root target-folder tier &optional tags coordination))
+(declare-function mailx-classify-batch "mailx-classify" (root &optional options))
+(declare-function org-capture "org-capture" (&optional goto keys))
 
 ;;;###autoload
 (defun mailx-capture-task (&optional key)

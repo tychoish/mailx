@@ -15,6 +15,8 @@
 
 (require 'mu4e-context)
 
+(defvar org-capture-templates nil)
+
 (ert-deftest mailx-org-link-switches-before-search ()
   (let (events)
     (cl-letf (((symbol-function 'mailx-ensure-context)
@@ -87,11 +89,16 @@
       (should (equal (nreverse mailx-org-test-events) '(mailx activate mu4e lookup))))))
 
 (ert-deftest mailx-org-setup-registers-link ()
-  (mailx-org-setup)
-  (should (eq (org-link-get-parameter "mailx" :follow)
-              #'mailx-org-follow-link))
-  (should (eq (org-link-get-parameter "mailx" :store)
-              #'mailx-org-store-link)))
+  (let ((org-capture-templates '(("t" "tasks"))))
+    (mailx-org-setup)
+    (should (eq (org-link-get-parameter "mailx" :follow)
+                #'mailx-org-follow-link))
+    (should (eq (org-link-get-parameter "mailx" :store)
+                #'mailx-org-store-link))
+    (should (assoc "m" org-capture-templates))
+    (mailx-org-teardown)
+    (should-not (org-link-get-parameter "mailx" :follow))
+    (should-not (assoc "m" org-capture-templates))))
 
 (ert-deftest mailx-org-capture-task-flow ()
   (let ((major-mode 'mu4e-headers-mode)

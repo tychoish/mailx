@@ -41,6 +41,9 @@
 (declare-function mu4e-contact-email "mu4e-contacts")
 (declare-function mu4e-contact-name "mu4e-contacts")
 
+(declare-function mailx-org-setup "mailx-org")
+(declare-function mailx-org-teardown "mailx-org")
+
 (eval-when-compile
   (require 'message)
   (require 'sendmail))
@@ -280,6 +283,16 @@
   (when (bound-and-true-p mailx-global-mode)
     (mailx-global--enable-message)))
 
+(defun mailx-global--enable-org ()
+  "Apply mailx configuration to Org."
+  (require 'mailx-org)
+  (mailx-org-setup))
+
+(defun mailx-global--disable-org ()
+  "Remove mailx configuration from Org."
+  (when (featurep 'mailx-org)
+    (mailx-org-teardown)))
+
 ;;;###autoload
 (define-minor-mode mailx-global-mode
   "Global minor mode for mailx routing, attention views, and triage."
@@ -293,14 +306,16 @@
         (mailx-global--enable-display-buffer)
         (when (featurep 'mu4e) (mailx-global--enable-mu4e))
         (when (featurep 'mu4e-draft) (mailx-global--enable-mu4e-draft))
-        (when (featurep 'message) (mailx-global--enable-message)))
+        (when (featurep 'message) (mailx-global--enable-message))
+        (mailx-global--enable-org))
     (mailx-global--revert-settings)
     (mailx-global--disable-advice)
     (mailx-global--disable-hooks)
     (mailx-global--disable-display-buffer)
     (when (featurep 'mu4e) (mailx-global--disable-mu4e))
     (when (featurep 'mu4e-draft) (mailx-global--disable-mu4e-draft))
-    (when (featurep 'message) (mailx-global--disable-message))))
+    (when (featurep 'message) (mailx-global--disable-message))
+    (mailx-global--disable-org)))
 
 ;;;###autoload
 (defun mailx-setup ()
