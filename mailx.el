@@ -157,15 +157,15 @@
 
 (defun mailx-global--enable-advice ()
   "Enable advice managed by `mailx-global-mode'."
-  (advice-add 'basic-save-buffer :before #'ad:mailx-guard-save)
-  (advice-add 'mu4e--draft :around #'ad:mailx-draft)
-  (advice-add 'mu4e--draft :before #'ad:mailx-start-for-draft '((depth . -50))))
+  (advice-add 'basic-save-buffer :before #'mailx--ad-guard-save)
+  (advice-add 'mu4e--draft :around #'mailx--ad-draft)
+  (advice-add 'mu4e--draft :before #'mailx--ad-start-for-draft '((depth . -50))))
 
 (defun mailx-global--disable-advice ()
   "Disable advice managed by `mailx-global-mode'."
-  (advice-remove 'basic-save-buffer #'ad:mailx-guard-save)
-  (advice-remove 'mu4e--draft #'ad:mailx-draft)
-  (advice-remove 'mu4e--draft #'ad:mailx-start-for-draft))
+  (advice-remove 'basic-save-buffer #'mailx--ad-guard-save)
+  (advice-remove 'mu4e--draft #'mailx--ad-draft)
+  (advice-remove 'mu4e--draft #'mailx--ad-start-for-draft))
 
 (defun mailx-global--enable-hooks ()
   "Add hooks managed by `mailx-global-mode'."
@@ -481,7 +481,7 @@ address, subject, and body.  For https: URIs, opens the URL in a browser."
                  (file-in-directory-p buffer-file-name root))
       (user-error "Switch to this draft's database before saving or sending"))))
 
-(defun ad:mailx-guard-save (&rest _args)
+(defun mailx--ad-guard-save (&rest _args)
   "Guard saving mu4e drafts.
 `before-save-hook' errors are demoted by `basic-save-buffer', so this
 must be advice to be able to abort the save."
@@ -497,13 +497,13 @@ must be advice to be able to abort the save."
                  (equal (downcase address) (downcase user-mail-address)))
       (user-error "Select the context matching this draft's From before sending"))))
 
-(defun ad:mailx-start-for-draft (&rest _args)
+(defun mailx--ad-start-for-draft (&rest _args)
   "Start the default database and await its readiness before composing."
   (when mailx--transitioning
     (user-error "Wait for the mail database switch before composing"))
   (mailx-server-ensure-ready))
 
-(defun ad:mailx-draft (original &rest args)
+(defun mailx--ad-draft (original &rest args)
   "Call ORIGINAL with ARGS, isolating the draft's selected identity."
   (let ((mailx--composing t)
         (mu4e--context-current mu4e--context-current)

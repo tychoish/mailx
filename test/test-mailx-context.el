@@ -9,6 +9,11 @@
 (require 'cl-lib)
 (require 'map)
 (require 'mailx)
+
+(let ((sys-mu4e "/usr/share/emacs/site-lisp/mu4e"))
+  (when (and (file-directory-p sys-mu4e) (not (member sys-mu4e load-path)))
+    (add-to-list 'load-path sys-mu4e)))
+
 (require 'mu4e)
 (require 'mu4e-context)
 (require 'mu4e-compose)
@@ -242,7 +247,7 @@
     (unwind-protect
         (progn
           (cl-letf (((symbol-function 'mu4e-running-p) (lambda () t)))
-            (ad:mailx-draft
+            (mailx--ad-draft
              (lambda ()
              (setq user-mail-address "beta@example.org")
              (with-current-buffer draft
@@ -262,7 +267,7 @@
         started)
     (cl-letf (((symbol-function 'mailx-server-ensure-ready)
                (lambda () (setq started t))))
-      (should-error (ad:mailx-start-for-draft) :type 'user-error)
+      (should-error (mailx--ad-start-for-draft) :type 'user-error)
       (should-not started))))
 
 (ert-deftest mailx-context/cold-draft-waits-for-server-readiness ()
@@ -281,8 +286,8 @@
                (lambda (&rest _)
                  (push 'pong events)
                  (funcall mu4e-pong-func nil))))
-      (ad:mailx-start-for-draft)
-      (ad:mailx-draft
+      (mailx--ad-start-for-draft)
+      (mailx--ad-draft
        (lambda ()
          (should mu4e--started)
          (push 'compose events)

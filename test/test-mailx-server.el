@@ -8,6 +8,11 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'mailx-server)
+
+(let ((sys-mu4e "/usr/share/emacs/site-lisp/mu4e"))
+  (when (and (file-directory-p sys-mu4e) (not (member sys-mu4e load-path)))
+    (add-to-list 'load-path sys-mu4e)))
+
 (require 'mu4e)
 
 (defmacro mailx-server-test--isolated (&rest body)
