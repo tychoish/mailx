@@ -100,8 +100,27 @@
 (defvar message-signature-file)
 (defvar message-sendmail-extra-arguments)
 (defvar mail-host-address)
+(defvar message-send-mail-function)
+(defvar message-fill-column)
+(defvar compose-mail-user-agent-warnings)
+(defvar mail-specify-envelope-from)
+(defvar mail-user-agent)
+(defvar mail-header-separator)
+(defvar message-citation-line-function)
 (defvar mailx--composing nil
   "Non-nil while mu4e creates a draft.")
+
+(defcustom mailx-compose-complete-years 10
+  "Number of years back to include contacts for address completion.
+When non-nil, sets `mu4e-compose-complete-only-after' to that many years
+prior to current date."
+  :type '(choice (integer :tag "Years") (const :tag "Disabled" nil))
+  :group 'mailx)
+
+(defun mailx-compose-complete-after-date (&optional years)
+  "Return ISO date string YEARS before now (defaulting to `mailx-compose-complete-years')."
+  (when-let* ((y (or years mailx-compose-complete-years)))
+    (format-time-string "%Y-%m-%d" (time-subtract (current-time) (days-to-time (* 365 y))))))
 
 (defun mailx-current-maildir ()
   "Return the active maildir root directory."
@@ -129,8 +148,15 @@
     (mail-header-separator . ,mailx-header-separator)
     (message-citation-line-format . ,mailx-citation-line-format)
     (message-citation-line-function . message-insert-formatted-citation-line)
+    (message-send-mail-function . message-send-mail-with-sendmail)
+    (message-fill-column . 80)
+    (mml-secure-openpgp-sign-with-sender . t)
+    (compose-mail-user-agent-warnings . nil)
     (mu4e-refile-folder . mailx-refile-folder)
-    (mu4e-compose-context-policy . ask))
+    (mu4e-compose-context-policy . ask)
+    (mu4e-compose-complete-only-after . ,(mailx-compose-complete-after-date))
+    (mu4e-search-include-related . nil)
+    (mu4e-search-results-limit . 1000))
   "Alist of (SYMBOL . VALUE) settings managed globally by `mailx-global-mode'."
   :type '(alist :key-type symbol :value-type sexp)
   :group 'mailx)
@@ -170,13 +196,28 @@
   (advice-remove 'mu4e--draft #'mailx--ad-draft)
   (advice-remove 'mu4e--draft #'mailx--ad-start-for-draft))
 
+(defconst mailx-frame-home-hooks
+  '(mu4e-main-mode-hook
+    mu4e-headers-mode-hook
+    mu4e-view-mode-hook
+    mu4e-compose-mode-hook)
+  "Hooks where `cmdr-frame-record-home-frame' is installed if available.")
+
 (defun mailx-global--enable-hooks ()
   "Add hooks managed by `mailx-global-mode'."
-  (add-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer))
+  (add-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
+  (add-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
+  (when (fboundp 'cmdr-frame-record-home-frame)
+    (dolist (hook mailx-frame-home-hooks)
+      (add-hook hook #'cmdr-frame-record-home-frame))))
 
 (defun mailx-global--disable-hooks ()
   "Remove hooks managed by `mailx-global-mode'."
-  (remove-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer))
+  (remove-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
+  (remove-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
+  (when (fboundp 'cmdr-frame-record-home-frame)
+    (dolist (hook mailx-frame-home-hooks)
+      (remove-hook hook #'cmdr-frame-record-home-frame))))
 
 (defconst mailx--display-buffer-entry
   '(mailx--buffer-p (display-buffer-reuse-window) (reusable-frames . t))
@@ -330,6 +371,10 @@
   "Configure local settings for mu4e composition."
   (setq-local use-hard-newlines t)
   (setq-local make-backup-files nil)
+  (if (fboundp 'turn-off-hard-wrap)
+      (turn-off-hard-wrap)
+    (auto-fill-mode -1)
+    (visual-line-mode 1))
   (seq-do #'make-local-variable
           '(mu4e--context-current
             user-mail-address

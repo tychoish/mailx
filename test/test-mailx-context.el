@@ -10,9 +10,11 @@
 (require 'map)
 (require 'mailx)
 
-(let ((sys-mu4e "/usr/share/emacs/site-lisp/mu4e"))
-  (when (and (file-directory-p sys-mu4e) (not (member sys-mu4e load-path)))
-    (add-to-list 'load-path sys-mu4e)))
+(dolist (dir (append '("/usr/share/emacs/site-lisp/mu4e")
+                     (file-expand-wildcards "/usr/share/emacs/site-lisp/elpa-src/mu4e*")
+                     (file-expand-wildcards "/usr/share/emacs/site-lisp/elpa/mu4e*")))
+  (when (and (file-directory-p dir) (not (member dir load-path)))
+    (add-to-list 'load-path dir)))
 
 (require 'mu4e)
 (require 'mu4e-context)
