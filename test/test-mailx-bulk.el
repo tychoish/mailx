@@ -1,0 +1,78 @@
+;;; test-mailx-bulk.el --- Tests for mailx HITL targets -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Tests use temporary files and a stubbed mu query; no mail is changed.
+
+;;; Code:
+
+(require 'ert)
+(require 'cl-lib)
+(require 'mailx-bulk)
+
+(ert-deftest mailx-bulk-resolves-renamed-message-and-rejects-ambiguity ()
+  (let* ((root (make-temp-file "mailx-bulk-" t))
+         (path (expand-file-name "renamed" root))
+         (target (list :root root :message-id "test@example.org" :path "old"))
+         (message (list :message-id "test@example.org" :path path)))
+    (unwind-protect
+        (progn
+          (write-region "test" nil path nil 'silent)
+          (cl-letf (((symbol-function 'mailx--mu-find)
+                     (lambda (_root _query) (list message))))
+            (should (equal path (map-elt (mailx-bulk--resolve-target target) :path))))
+          (cl-letf (((symbol-function 'mailx--mu-find)
+                     (lambda (_root _query) (list message message))))
+            (should-not (mailx-bulk--resolve-target target)))
+          (cl-letf (((symbol-function 'mailx--mu-find)
+                     (lambda (&rest _) (error "must not query"))))
+            (should-not (mailx-bulk--resolve-target
+                         (list :root root :message-id "x OR y")))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-bulk-registration-and-operations ()
+  (let ((domain (mailx-bulk-setup)))
+    (should (hitl-plan-domain-struct-p domain))
+    (should (eq (hitl-plan-domain-name domain) 'mailx))
+    (should (hitl-plan-get-op 'mailx 'mark-read))
+    (should (hitl-plan-get-op 'mailx 'refile))
+    (should (hitl-plan-get-op 'mailx 'tag))
+    (should (hitl-plan-get-op 'mailx 'unsubscribe))
+    (should (hitl-plan-get-op 'mailx 'block-sender))
+    (should (hitl-plan-get-op 'mailx 'expire-older))
+    (should (hitl-plan-get-op 'mailx 'promote-rule))))
+
+(ert-deftest mailx-bulk-visit-checks-database-and-revalidates ()
+  (let* ((root (make-temp-file "mailx-bulk-" t))
+         (home (expand-file-name ".mu" root))
+         (path (expand-file-name "message" root))
+         (target (list :root root :context "test" :message-id "a@example.org"))
+         (message (list :path path :message-id "a@example.org"))
+         (home-used home)
+         (queries 0)
+         (opened nil))
+    (unwind-protect
+        (progn
+          (make-directory home)
+          (write-region "test" nil path nil 'silent)
+          (require 'mailx-org)
+          (cl-letf (((symbol-function 'mailx--mu-find)
+                     (lambda (&rest _) (setq queries (1+ queries)) (list message)))
+                    ((symbol-function 'mailx-ensure-context) #'ignore)
+                    ((symbol-function 'mailx-server-current-home) (lambda () home-used))
+                    ((symbol-function 'mu4e-view-message-with-message-id)
+                     (lambda (id) (setq opened id) nil)))
+            (should (mailx-bulk--visit-target target))
+            (should (= queries 2))
+            (should (equal opened "a@example.org"))
+            (setq opened nil)
+            (setq home-used root)
+            (should-error (mailx-bulk--visit-target target) :type 'user-error)
+            (should-not opened)
+            (should-error (mailx-bulk--visit-target
+                           (list :root root :context "test" :message-id "a OR b"))
+                          :type 'user-error)
+            (should-not opened)))
+      (delete-directory root t))))
+
+(provide 'test-mailx-bulk)
+;;; test-mailx-bulk.el ends here

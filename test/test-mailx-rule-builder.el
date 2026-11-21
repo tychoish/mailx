@@ -1,0 +1,60 @@
+;;; test-mailx-rule-builder.el --- Tests for mailx rule builder -*- lexical-binding: t; -*-
+
+;;; Commentary:
+;; Tests the interactive rule builder without accessing a mail database.
+
+;;; Code:
+
+(require 'ert)
+(require 'cl-lib)
+(require 'mailx)
+
+(ert-deftest mailx-rule-builder/saves-confirmed-preview ()
+  (let ((message-directory "/tmp/mailx-test")
+        (choices '(":subject" "read"))
+        (inputs '("report" "/reports" "reports"))
+        saved previewed)
+    (cl-letf (((symbol-function 'mu4e-message-field) (lambda (_msg _field) "Report"))
+              ((symbol-function 'annotated-completing-read)
+               (lambda (&rest _) (pop choices)))
+              ((symbol-function 'read-string) (lambda (&rest _) (pop inputs)))
+              ((symbol-function 'mailx-rules-load) (lambda (_root) nil))
+              ((symbol-function 'mailx-test-rule)
+               (lambda (_root rule) (setq previewed rule) '(:count 2 :subjects ("Report"))))
+              ((symbol-function 'yes-or-no-p) (lambda (_) t))
+              ((symbol-function 'mailx-rules-save)
+               (lambda (root rules) (setq saved (cons root rules)))))
+      (mailx-generate-refile-rule '(:subject "Report"))
+      (should (equal (car saved) message-directory))
+      (should (eq (cadr saved) previewed))
+      (should (equal (mailx-rule-match previewed) '(:subject "report")))
+      (should (eq (mailx-rule-tier previewed) 'read)))))
+
+(ert-deftest mailx-rule-builder/decline-does-not-save ()
+  (let ((message-directory "/tmp/mailx-test")
+        (choices '(":subject" "read"))
+        (inputs '("report" "/reports" "reports"))
+        saved)
+    (cl-letf (((symbol-function 'mu4e-message-field) (lambda (_msg _field) "Report"))
+              ((symbol-function 'annotated-completing-read) (lambda (&rest _) (pop choices)))
+              ((symbol-function 'read-string) (lambda (&rest _) (pop inputs)))
+              ((symbol-function 'mailx-rules-load) (lambda (_) nil))
+              ((symbol-function 'mailx-test-rule) (lambda (&rest _) '(:count 0)))
+              ((symbol-function 'yes-or-no-p) (lambda (_) nil))
+              ((symbol-function 'mailx-rules-save) (lambda (&rest _) (setq saved t))))
+      (should-not (mailx-generate-refile-rule '(:subject "Report")))
+      (should-not saved))))
+
+(ert-deftest mailx-rule-builder/rejects-duplicate-id ()
+  (let ((message-directory "/tmp/mailx-test")
+        (choices '(":subject" "read"))
+        (inputs '("report" "/reports" "reports")))
+    (cl-letf (((symbol-function 'mu4e-message-field) (lambda (_msg _field) "Report"))
+              ((symbol-function 'annotated-completing-read) (lambda (&rest _) (pop choices)))
+              ((symbol-function 'read-string) (lambda (&rest _) (pop inputs)))
+              ((symbol-function 'mailx-rules-load)
+               (lambda (_) (list (make-mailx-rule :id 'reports)))))
+      (should-error (mailx-generate-refile-rule '(:subject "Report")) :type 'user-error))))
+
+(provide 'test-mailx-rule-builder)
+;;; test-mailx-rule-builder.el ends here
