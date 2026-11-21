@@ -3,7 +3,7 @@
 ;; Author: sam kleinman <sam@tychoish.com>
 ;; Maintainer: sam kleinman <sam@tychoish.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1") (hitl "0.1.0") (mcpkit "0.1.0"))
+;; Package-Requires: ((emacs "29.1") (hitl "0.1.0") (mcpkit "0.1.0") (annotated-completing-read "0.1.0"))
 ;; Keywords: mail, convenience
 ;; URL: https://github.com/tychoish/mailx
 
@@ -120,54 +120,193 @@
 (defvar mailx--refile-rules nil
   "Functions of one argument MSG, tried in order by `mailx-refile-folder'.")
 
-;;;###autoload
-(defun mailx-setup ()
-  "Initialize mailx hooks, advice, and buffer display settings."
-  (interactive)
-  (if (featurep 'mu4e)
-      (mailx-views-setup)
-    (with-eval-after-load 'mu4e
-      (mailx-views-setup)))
-  (add-to-list 'display-buffer-alist '(mailx--buffer-p (display-buffer-reuse-window) (reusable-frames . t)))
+(defcustom mailx-global-managed-settings
+  `((mail-specify-envelope-from . t)
+    (mail-user-agent . mu4e-user-agent)
+    (mail-header-separator . ,mailx-header-separator)
+    (message-citation-line-format . ,mailx-citation-line-format)
+    (message-citation-line-function . message-insert-formatted-citation-line)
+    (mu4e-refile-folder . mailx-refile-folder)
+    (mu4e-compose-context-policy . ask))
+  "Alist of (SYMBOL . VALUE) settings managed globally by `mailx-global-mode'."
+  :type '(alist :key-type symbol :value-type sexp)
+  :group 'mailx)
+
+(defvar mailx-global--saved-settings nil
+  "Alist of (SYMBOL . (BOUNDP . VALUE)) saved before enabling `mailx-global-mode'.")
+
+(defun mailx-global--apply-settings ()
+  "Save previous values and apply `mailx-global-managed-settings'."
+  (setq mailx-global--saved-settings nil)
+  (dolist (pair mailx-global-managed-settings)
+    (let ((sym (car pair))
+          (val (cdr pair)))
+      (push (cons sym (if (boundp sym) (cons t (symbol-value sym)) (cons nil nil)))
+            mailx-global--saved-settings)
+      (set sym val))))
+
+(defun mailx-global--revert-settings ()
+  "Restore variables to their state prior to `mailx-global-mode'."
+  (dolist (entry mailx-global--saved-settings)
+    (let ((sym (car entry))
+          (status (cdr entry)))
+      (if (car status)
+          (set sym (cdr status))
+        (makunbound sym))))
+  (setq mailx-global--saved-settings nil))
+
+(defun mailx-global--enable-advice ()
+  "Enable advice managed by `mailx-global-mode'."
   (advice-add 'basic-save-buffer :before #'ad:mailx-guard-save)
   (advice-add 'mu4e--draft :around #'ad:mailx-draft)
-  (advice-add 'mu4e--draft :before #'ad:mailx-start-for-draft '((depth . -50)))
-  (add-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
-  (setq mail-specify-envelope-from t)
-  (setq mail-user-agent 'mu4e-user-agent)
-  (setq mail-header-separator mailx-header-separator)
-  (when (boundp 'mu4e--header-separator)
-    (setq mu4e--header-separator (propertize mail-header-separator 'read-only t 'intangible t)))
-  (with-eval-after-load 'mu4e-draft
-    (setq mu4e--header-separator (propertize mail-header-separator 'read-only t 'intangible t)))
-  (setq message-citation-line-format mailx-citation-line-format)
-  (setq message-citation-line-function 'message-insert-formatted-citation-line)
-  (when (boundp 'message-cite-style-gmail)
-    (setq message-cite-style
-          (seq-remove (lambda (binding)
-                        (memq (car binding) '(message-citation-line-function
-                                              message-citation-line-format)))
-                      message-cite-style-gmail)))
-  (with-eval-after-load 'message
-    (add-to-list 'mm-discouraged-alternatives "text/richtext")
-    (add-to-list 'mm-discouraged-alternatives "text/html")
-    (when (and (display-graphic-p) (facep 'message-separator))
-      (set-face-attribute 'message-separator nil :background (face-attribute 'default :background nil)))
-    (setq message-cite-style
-          (seq-remove (lambda (binding)
-                        (memq (car binding) '(message-citation-line-function
-                                              message-citation-line-format)))
-                      message-cite-style-gmail)))
-  (when (boundp 'mu4e-refile-folder)
-    (setq mu4e-refile-folder #'mailx-refile-folder))
-  (with-eval-after-load 'mu4e
-    (setq mu4e-refile-folder #'mailx-refile-folder)
-    (setq mu4e-compose-context-policy 'ask)
-    (add-to-list 'mu4e-headers-actions '("generate refile rule" . mailx-generate-refile-rule) t)
-    (add-to-list 'mu4e-view-actions '("unsubscribe" . mailx-unsubscribe) t)
-    (add-to-list 'mu4e-view-actions '("generate refile rule" . mailx-generate-refile-rule) t)))
+  (advice-add 'mu4e--draft :before #'ad:mailx-start-for-draft '((depth . -50))))
 
-(mailx-setup)
+(defun mailx-global--disable-advice ()
+  "Disable advice managed by `mailx-global-mode'."
+  (advice-remove 'basic-save-buffer #'ad:mailx-guard-save)
+  (advice-remove 'mu4e--draft #'ad:mailx-draft)
+  (advice-remove 'mu4e--draft #'ad:mailx-start-for-draft))
+
+(defun mailx-global--enable-hooks ()
+  "Add hooks managed by `mailx-global-mode'."
+  (add-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer))
+
+(defun mailx-global--disable-hooks ()
+  "Remove hooks managed by `mailx-global-mode'."
+  (remove-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer))
+
+(defconst mailx--display-buffer-entry
+  '(mailx--buffer-p (display-buffer-reuse-window) (reusable-frames . t))
+  "Entry added to `display-buffer-alist' by `mailx-global-mode'.")
+
+(defun mailx-global--enable-display-buffer ()
+  "Register mailx buffer handling in `display-buffer-alist'."
+  (add-to-list 'display-buffer-alist mailx--display-buffer-entry))
+
+(defun mailx-global--disable-display-buffer ()
+  "Remove mailx buffer handling from `display-buffer-alist'."
+  (setq display-buffer-alist
+        (delete mailx--display-buffer-entry display-buffer-alist)))
+
+(defconst mailx--mu4e-headers-actions
+  '(("generate refile rule" . mailx-generate-refile-rule)))
+
+(defconst mailx--mu4e-view-actions
+  '(("unsubscribe" . mailx-unsubscribe)
+    ("generate refile rule" . mailx-generate-refile-rule)))
+
+(defun mailx-global--enable-mu4e ()
+  "Apply mailx configuration to mu4e."
+  (when (featurep 'mu4e)
+    (mailx-views-setup)
+    (when (boundp 'mu4e-headers-actions)
+      (dolist (action mailx--mu4e-headers-actions)
+        (add-to-list 'mu4e-headers-actions action t)))
+    (when (boundp 'mu4e-view-actions)
+      (dolist (action mailx--mu4e-view-actions)
+        (add-to-list 'mu4e-view-actions action t)))))
+
+(defun mailx-global--disable-mu4e ()
+  "Remove mailx configuration from mu4e."
+  (when (featurep 'mu4e)
+    (mailx-views-teardown)
+    (when (boundp 'mu4e-headers-actions)
+      (dolist (action mailx--mu4e-headers-actions)
+        (setq mu4e-headers-actions (delete action mu4e-headers-actions))))
+    (when (boundp 'mu4e-view-actions)
+      (dolist (action mailx--mu4e-view-actions)
+        (setq mu4e-view-actions (delete action mu4e-view-actions))))))
+
+(defvar mailx-global--saved-header-separator nil
+  "Saved `mu4e--header-separator' value prior to `mailx-global-mode'.")
+
+(defun mailx-global--enable-mu4e-draft ()
+  "Apply mailx configuration to mu4e-draft."
+  (when (boundp 'mu4e--header-separator)
+    (unless mailx-global--saved-header-separator
+      (setq mailx-global--saved-header-separator mu4e--header-separator))
+    (setq mu4e--header-separator
+          (propertize (if (boundp 'mail-header-separator)
+                          mail-header-separator
+                        mailx-header-separator)
+                      'read-only t 'intangible t))))
+
+(defun mailx-global--disable-mu4e-draft ()
+  "Remove mailx configuration from mu4e-draft."
+  (when (boundp 'mu4e--header-separator)
+    (when mailx-global--saved-header-separator
+      (setq mu4e--header-separator mailx-global--saved-header-separator)
+      (setq mailx-global--saved-header-separator nil))))
+
+(defvar mailx-global--saved-message-cite-style nil
+  "Saved `message-cite-style' value prior to `mailx-global-mode'.")
+
+(defun mailx-global--enable-message ()
+  "Apply mailx configuration to message."
+  (when (boundp 'mm-discouraged-alternatives)
+    (add-to-list 'mm-discouraged-alternatives "text/richtext")
+    (add-to-list 'mm-discouraged-alternatives "text/html"))
+  (when (and (display-graphic-p) (facep 'message-separator))
+    (set-face-attribute 'message-separator nil :background (face-attribute 'default :background nil)))
+  (when (boundp 'message-cite-style)
+    (unless mailx-global--saved-message-cite-style
+      (setq mailx-global--saved-message-cite-style message-cite-style))
+    (when (boundp 'message-cite-style-gmail)
+      (setq message-cite-style
+            (seq-remove (lambda (binding)
+                          (memq (car binding) '(message-citation-line-function
+                                                message-citation-line-format)))
+                        message-cite-style-gmail)))))
+
+(defun mailx-global--disable-message ()
+  "Remove mailx configuration from message."
+  (when (boundp 'mm-discouraged-alternatives)
+    (setq mm-discouraged-alternatives
+          (delete "text/richtext" (delete "text/html" mm-discouraged-alternatives))))
+  (when (boundp 'message-cite-style)
+    (when mailx-global--saved-message-cite-style
+      (setq message-cite-style mailx-global--saved-message-cite-style)
+      (setq mailx-global--saved-message-cite-style nil))))
+
+(with-eval-after-load 'mu4e
+  (when (bound-and-true-p mailx-global-mode)
+    (mailx-global--enable-mu4e)))
+
+(with-eval-after-load 'mu4e-draft
+  (when (bound-and-true-p mailx-global-mode)
+    (mailx-global--enable-mu4e-draft)))
+
+(with-eval-after-load 'message
+  (when (bound-and-true-p mailx-global-mode)
+    (mailx-global--enable-message)))
+
+;;;###autoload
+(define-minor-mode mailx-global-mode
+  "Global minor mode for mailx routing, attention views, and triage."
+  :global t
+  :group 'mailx
+  (if mailx-global-mode
+      (progn
+        (mailx-global--apply-settings)
+        (mailx-global--enable-advice)
+        (mailx-global--enable-hooks)
+        (mailx-global--enable-display-buffer)
+        (when (featurep 'mu4e) (mailx-global--enable-mu4e))
+        (when (featurep 'mu4e-draft) (mailx-global--enable-mu4e-draft))
+        (when (featurep 'message) (mailx-global--enable-message)))
+    (mailx-global--revert-settings)
+    (mailx-global--disable-advice)
+    (mailx-global--disable-hooks)
+    (mailx-global--disable-display-buffer)
+    (when (featurep 'mu4e) (mailx-global--disable-mu4e))
+    (when (featurep 'mu4e-draft) (mailx-global--disable-mu4e-draft))
+    (when (featurep 'message) (mailx-global--disable-message))))
+
+;;;###autoload
+(defun mailx-setup ()
+  "Enable `mailx-global-mode'."
+  (interactive)
+  (mailx-global-mode 1))
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Management and Supporting Code

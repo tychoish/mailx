@@ -3,7 +3,7 @@
 ;; Author: sam kleinman <sam@tychoish.com>
 ;; Maintainer: sam kleinman <sam@tychoish.com>
 ;; Version: 0.1.0
-;; Package-Requires: ((emacs "29.1"))
+;; Package-Requires: ((emacs "29.1") (annotated-completing-read "0.1.0"))
 ;; Keywords: mail, convenience
 ;; URL: https://github.com/tychoish/mailx
 
@@ -127,9 +127,25 @@
     (when choice
       (mu4e-search (mailx-views-tier-query (intern choice))))))
 
+(defvar mailx-views--saved-bookmarks nil
+  "Saved bookmarks prior to `mailx-views-setup'.")
+
+(defvar mailx-views--saved-headers-fields nil
+  "Saved headers fields prior to `mailx-views-setup'.")
+
+(defvar mailx-views--saved-custom-markers nil
+  "Saved custom markers prior to `mailx-views-setup'.")
+
+(defvar mailx-views--saved-header-info nil
+  "Saved header info for :mailx-tier prior to `mailx-views-setup'.")
+
 ;;;###autoload
 (defun mailx-views-setup ()
   "Install attention bookmarks, tier column, and a custom tier marker."
+  (setq mailx-views--saved-bookmarks mu4e-bookmarks)
+  (setq mailx-views--saved-headers-fields mu4e-headers-fields)
+  (setq mailx-views--saved-custom-markers mu4e-headers-custom-markers)
+  (setq mailx-views--saved-header-info (alist-get :mailx-tier mu4e-header-info-custom))
   (setq mu4e-bookmarks (mailx-views-bookmarks))
   (setf (alist-get :mailx-tier mu4e-header-info-custom)
         '(:name "Attention tier" :shortname "Tier" :help "Attention tier"
@@ -140,6 +156,27 @@
         (cons '("Attention tier" mailx-views--matches-tier-p mailx-views--read-tier)
               (seq-remove (lambda (marker) (equal (car marker) "Attention tier"))
                           mu4e-headers-custom-markers))))
+
+;;;###autoload
+(defun mailx-views-teardown ()
+  "Remove attention bookmarks, tier column, and tier marker."
+  (when mailx-views--saved-bookmarks
+    (setq mu4e-bookmarks mailx-views--saved-bookmarks)
+    (setq mailx-views--saved-bookmarks nil))
+  (if mailx-views--saved-header-info
+      (setf (alist-get :mailx-tier mu4e-header-info-custom) mailx-views--saved-header-info)
+    (setq mu4e-header-info-custom
+          (seq-remove (lambda (elt) (eq (car elt) :mailx-tier)) mu4e-header-info-custom)))
+  (if mailx-views--saved-headers-fields
+      (setq mu4e-headers-fields mailx-views--saved-headers-fields)
+    (setq mu4e-headers-fields
+          (seq-remove (lambda (elt) (eq (car elt) :mailx-tier)) mu4e-headers-fields)))
+  (setq mu4e-headers-custom-markers
+        (seq-remove (lambda (marker) (equal (car marker) "Attention tier"))
+                    mu4e-headers-custom-markers))
+  (setq mailx-views--saved-header-info nil
+        mailx-views--saved-headers-fields nil
+        mailx-views--saved-custom-markers nil))
 
 (provide 'mailx-views)
 ;;; mailx-views.el ends here

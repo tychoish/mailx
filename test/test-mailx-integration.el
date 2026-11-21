@@ -11,6 +11,8 @@
 (require 'mu4e)
 (require 'mu4e-compose)
 
+(mailx-global-mode 1)
+
 (ert-deftest mailx-integration/reopen-indexed-draft ()
   "Reopen a real indexed draft and enforce its database ownership."
   (skip-unless (and noninteractive (executable-find "mu")

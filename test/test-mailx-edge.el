@@ -72,5 +72,28 @@
       (mailx-edge--unsubscribe "<mailto:a@x.org>, <https://example.org/two>"))
     (should (equal "https://example.org/two" visited))))
 
+(ert-deftest mailx-edge/global-mode-lifecycle-and-managed-settings ()
+  (unwind-protect
+      (progn
+        (mailx-global-mode -1)
+        (let ((mail-specify-envelope-from nil)
+              (mu4e-refile-folder nil))
+          (should-not mailx-global-mode)
+          (should-not (advice-function-member-p #'ad:mailx-guard-save (advice--symbol-function 'basic-save-buffer)))
+          (should-not (member mailx--display-buffer-entry display-buffer-alist))
+          (mailx-global-mode 1)
+          (should mailx-global-mode)
+          (should (eq mail-specify-envelope-from t))
+          (should (eq mu4e-refile-folder 'mailx-refile-folder))
+          (should (advice-function-member-p #'ad:mailx-guard-save (advice--symbol-function 'basic-save-buffer)))
+          (should (member mailx--display-buffer-entry display-buffer-alist))
+          (mailx-global-mode -1)
+          (should-not mailx-global-mode)
+          (should (null mail-specify-envelope-from))
+          (should (null mu4e-refile-folder))
+          (should-not (advice-function-member-p #'ad:mailx-guard-save (advice--symbol-function 'basic-save-buffer)))
+          (should-not (member mailx--display-buffer-entry display-buffer-alist))))
+    (mailx-global-mode 1)))
+
 (provide 'test-mailx-edge)
 ;;; test-mailx-edge.el ends here

@@ -69,16 +69,19 @@ git clone https://github.com/tychoish/mailx.git ~/src/mailx
 :CUSTOM_ID: configuration
 :END:
 
-Initialize ~mailx~ in your Emacs configuration:
+Initialize ~mailx~ in your Emacs configuration with `mailx-global-mode`:
 
 #+begin_src emacs-lisp
 (use-package mailx
-  :commands (mailx-setup mailx-make-context)
+  :commands (mailx-global-mode mailx-setup mailx-make-context)
   :init
-  (mailx-setup)
+  (mailx-global-mode 1)
   :config
   (setq mailx-default-maildir "~/mail"
         mailx-archive-folder "/archive")
+
+  ;; Optional: customize managed settings applied when mode is active
+  ;; (setq mailx-global-managed-settings '(...))
 
   ;; Optional: configure account contexts
   (setq mu4e-contexts
@@ -150,7 +153,9 @@ From a headers buffer, run ~M-x mailx-bulk-stage-current-view~ to snapshot the v
 
 | Function / Variable | Description |
 |---|---|
-| ~mailx-setup~ | Initialize hooks, advice, and buffer display handlers. |
+| ~mailx-global-mode~ | Global minor mode managing mail hooks, advice, and settings lifecycle. |
+| ~mailx-global-managed-settings~ | Alist of user settings applied when ~mailx-global-mode~ is enabled. |
+| ~mailx-setup~ | Convenience command to enable ~mailx-global-mode~. |
 | ~mailx-make-context~ | Constructor for isolated mu4e account contexts. |
 | ~mailx-generate-refile-rule~ | Interactive rule creator with live query preview. |
 | ~mailx-jump-to-tier~ | Annotated prompt to jump to attention tiers with unread counts. |

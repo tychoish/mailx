@@ -13,6 +13,8 @@
 (require 'mu4e-context)
 (require 'mu4e-compose)
 
+(mailx-global-mode 1)
+
 (defmacro mailx-test--with-accounts (&rest body)
   "Evaluate BODY with two isolated test contexts."
   (declare (indent 0) (debug t))
