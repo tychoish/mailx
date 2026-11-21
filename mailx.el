@@ -118,7 +118,8 @@ prior to current date."
   :group 'mailx)
 
 (defun mailx-compose-complete-after-date (&optional years)
-  "Return ISO date string YEARS before now (defaulting to `mailx-compose-complete-years')."
+  "Return ISO date string YEARS before now.
+YEARS defaults to `mailx-compose-complete-years'."
   (when-let* ((y (or years mailx-compose-complete-years)))
     (format-time-string "%Y-%m-%d" (time-subtract (current-time) (days-to-time (* 365 y))))))
 
