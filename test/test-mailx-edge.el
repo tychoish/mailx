@@ -144,7 +144,8 @@
       (should-not (memq #'mailx-global--maybe-enable-home-frames after-load-functions)))))
 
 (defvar features)
-(defvar org-load-hook)
+(defvar orgx-global-mode-hook)
+(defvar orgx-global-mode)
 
 (ert-deftest mailx-edge/org-integration-waits-for-org-load ()
   "Do not initialize Org integration until Org has loaded."
@@ -153,7 +154,8 @@
         (progn
           (when was-enabled (mailx-global-mode -1))
           (let ((features (delq 'org (copy-sequence features)))
-                (org-load-hook nil)
+                (orgx-global-mode-hook nil)
+                (orgx-global-mode nil)
                 (setups 0))
             (cl-letf (((symbol-function 'mailx-global--enable-org)
                        (lambda () (setq setups (1+ setups)))))
@@ -161,12 +163,12 @@
                   (progn
                     (mailx-global-mode 1)
                     (should (= setups 0))
-                    (should (memq #'mailx-global--enable-org org-load-hook))
+                    (should (memq #'mailx-global--enable-org orgx-global-mode-hook))
                     (provide 'org)
-                    (run-hooks 'org-load-hook)
+                    (run-hooks 'orgx-global-mode-hook)
                     (should (= setups 1))
                     (mailx-global-mode -1)
-                    (should-not (memq #'mailx-global--enable-org org-load-hook)))
+                    (should-not (memq #'mailx-global--enable-org orgx-global-mode-hook)))
                 (when mailx-global-mode (mailx-global-mode -1))))))
       (when was-enabled (mailx-global-mode 1)))))
 
