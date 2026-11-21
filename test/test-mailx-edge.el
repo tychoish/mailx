@@ -24,22 +24,28 @@
 (defvar org-capture-templates nil)
 
 (ert-deftest mailx-edge/refile-folder-defaults-to-archive ()
-  (let ((mailx--refile-rules nil))
+  (let ((mailx-refile-rules nil))
     (should (equal "/archive" (mailx-refile-folder '(:subject "x"))))))
 
 (ert-deftest mailx-edge/refile-rules-first-match-wins-and-nil-falls-through ()
-  (let ((mailx--refile-rules nil))
+  (let ((mailx-refile-rules nil))
     (mailx-add-refile-rule (lambda (_) nil))
     (mailx-add-refile-rule (lambda (_) "/a"))
     (mailx-add-refile-rule (lambda (_) "/b"))
     (should (equal "/a" (mailx-refile-folder nil)))))
 
 (ert-deftest mailx-edge/add-refile-rule-is-idempotent ()
-  (let ((mailx--refile-rules nil)
+  (let ((mailx-refile-rules nil)
         (rule (lambda (_) "/x")))
     (mailx-add-refile-rule rule)
     (mailx-add-refile-rule rule)
-    (should (= 1 (length mailx--refile-rules)))))
+    (should (= 1 (length mailx-refile-rules)))))
+
+(ert-deftest mailx-edge/refile-rules-alias-compatibility ()
+  (let ((mailx-refile-rules nil))
+    (add-to-list 'mailx--refile-rules #'ignore)
+    (should (equal mailx-refile-rules '(ignore)))
+    (should (equal mailx--refile-rules '(ignore)))))
 
 (ert-deftest mailx-edge/field-display-value-variants ()
   (cl-letf (((symbol-function 'mu4e-message-field)

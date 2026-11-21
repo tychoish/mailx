@@ -140,8 +140,14 @@ YEARS defaults to `mailx-compose-complete-years'."
     (:list . string))
   "Alist of mu4e message fields available for refile rule generation.")
 
-(defvar mailx--refile-rules nil
-  "Functions of one argument MSG, tried in order by `mailx-refile-folder'.")
+(defvaralias 'mailx--refile-rules 'mailx-refile-rules
+  "Alias for `mailx-refile-rules'.")
+
+;;;###autoload
+(defcustom mailx-refile-rules nil
+  "Functions of one argument MSG, tried in order by `mailx-refile-folder'."
+  :type '(repeat function)
+  :group 'mailx)
 
 (defcustom mailx-global-managed-settings
   `((mail-specify-envelope-from . t)
@@ -396,7 +402,7 @@ YEARS defaults to `mailx-compose-complete-years'."
   "Register RULE, a function of one argument MSG, as a refile rule.
 RULE should return a maildir folder string, or nil to fall through to the
 next registered rule."
-  (add-to-list 'mailx--refile-rules rule t))
+  (add-to-list 'mailx-refile-rules rule t))
 
 ;;;###autoload
 (defun mailx-refile-folder (msg)
@@ -408,7 +414,7 @@ next registered rule."
                                           (mailx-rule-match candidate) msg)))
                                   (mailx-rules-load root))))
         (mailx-rule-folder rule))
-      (seq-some (lambda (rule) (funcall rule msg)) mailx--refile-rules)
+      (seq-some (lambda (rule) (funcall rule msg)) mailx-refile-rules)
       mailx-archive-folder))
 
 (defun mailx--field-display-value (msg field)

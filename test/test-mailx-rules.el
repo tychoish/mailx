@@ -90,7 +90,7 @@
 (ert-deftest mailx-rules-refile-skips-tag-only-rule ()
   (require 'mailx)
   (let ((message-directory "/tmp")
-        (mailx--refile-rules nil)
+        (mailx-refile-rules nil)
         (rules (list (make-mailx-rule :id 'tag :match '(:subject "Hi")
                                      :tags '("retain"))
                      (make-mailx-rule :id 'folder :match '(:subject "Hi")
