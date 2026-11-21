@@ -27,7 +27,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y --no-install-recommends mu4e maildir-utils
+          apt-get install -y --no-install-recommends mu4e maildir-utils python3
 
       - name: Lint Source Code
         uses: tychoish/elisp-ci/lint@main
