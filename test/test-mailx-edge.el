@@ -87,6 +87,89 @@
       (mailx-edge--unsubscribe "<mailto:a@x.org>, <https://example.org/two>"))
     (should (equal "https://example.org/two" visited))))
 
+(defvar mu4e-main-mode-hook)
+(defvar mu4e-headers-mode-hook)
+(defvar mu4e-view-mode-hook)
+(defvar mu4e-compose-mode-hook)
+
+(ert-deftest mailx-edge/home-frame-hooks-are-owned-by-global-mode ()
+  "Enable home-frame hooks once and remove them on disable."
+  (let ((mu4e-main-mode-hook nil)
+        (mu4e-headers-mode-hook nil)
+        (mu4e-view-mode-hook nil)
+        (mu4e-compose-mode-hook nil))
+    (cl-letf (((symbol-function 'cmdr-frame-record-home-frame) #'ignore))
+      (mailx-global--enable-hooks)
+      (mailx-global--enable-hooks)
+      (seq-do (lambda (hook)
+                (should (= 1 (length (seq-filter
+                                      (lambda (fn) (eq fn 'cmdr-frame-record-home-frame))
+                                      (symbol-value hook))))))
+              mailx-frame-home-hooks)
+      (mailx-global--disable-hooks)
+      (seq-do (lambda (hook)
+                (should-not (memq #'cmdr-frame-record-home-frame (symbol-value hook))))
+              mailx-frame-home-hooks))))
+
+(ert-deftest mailx-edge/home-frame-hooks-activate-after-cmdr-loads ()
+  "Install home-frame hooks if cmdr becomes available after mailx."
+  (let ((mu4e-main-mode-hook nil)
+        (mu4e-headers-mode-hook nil)
+        (mu4e-view-mode-hook nil)
+        (mu4e-compose-mode-hook nil)
+        (after-load-functions nil)
+        (mailx-global-mode t))
+    (cl-letf (((symbol-function 'cmdr-frame-record-home-frame) nil))
+      (mailx-global--enable-hooks)
+      (should-not mu4e-main-mode-hook)
+      (fset 'cmdr-frame-record-home-frame #'ignore)
+      (run-hook-with-args 'after-load-functions "cmdr-frame")
+      (should-not (memq #'mailx-global--maybe-enable-home-frames after-load-functions))
+      (seq-do (lambda (hook)
+                (should (memq #'cmdr-frame-record-home-frame (symbol-value hook))))
+              mailx-frame-home-hooks)
+      (fmakunbound 'cmdr-frame-record-home-frame)
+      (mailx-global--disable-hooks)
+      (seq-do (lambda (hook)
+                (should-not (memq #'cmdr-frame-record-home-frame (symbol-value hook))))
+              mailx-frame-home-hooks))))
+
+(ert-deftest mailx-edge/home-frame-observer-removed-on-disable ()
+  "Stop waiting for cmdr when mailx is disabled first."
+  (let ((after-load-functions nil))
+    (cl-letf (((symbol-function 'cmdr-frame-record-home-frame) nil))
+      (mailx-global--enable-hooks)
+      (should (memq #'mailx-global--maybe-enable-home-frames after-load-functions))
+      (mailx-global--disable-hooks)
+      (should-not (memq #'mailx-global--maybe-enable-home-frames after-load-functions)))))
+
+(defvar features)
+(defvar org-load-hook)
+
+(ert-deftest mailx-edge/org-integration-waits-for-org-load ()
+  "Do not initialize Org integration until Org has loaded."
+  (let ((was-enabled mailx-global-mode))
+    (unwind-protect
+        (progn
+          (when was-enabled (mailx-global-mode -1))
+          (let ((features (delq 'org (copy-sequence features)))
+                (org-load-hook nil)
+                (setups 0))
+            (cl-letf (((symbol-function 'mailx-global--enable-org)
+                       (lambda () (setq setups (1+ setups)))))
+              (unwind-protect
+                  (progn
+                    (mailx-global-mode 1)
+                    (should (= setups 0))
+                    (should (memq #'mailx-global--enable-org org-load-hook))
+                    (provide 'org)
+                    (run-hooks 'org-load-hook)
+                    (should (= setups 1))
+                    (mailx-global-mode -1)
+                    (should-not (memq #'mailx-global--enable-org org-load-hook)))
+                (when mailx-global-mode (mailx-global-mode -1))))))
+      (when was-enabled (mailx-global-mode 1)))))
+
 (ert-deftest mailx-edge/global-mode-lifecycle-and-managed-settings ()
   (unwind-protect
       (progn

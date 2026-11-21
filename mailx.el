@@ -16,6 +16,7 @@
 ;;; Code:
 
 (require 'map)
+(require 'seq)
 (require 'cl-lib)
 (require 'mailx-server)
 (require 'mailx-rules)
@@ -210,21 +211,28 @@ YEARS defaults to `mailx-compose-complete-years'."
     mu4e-compose-mode-hook)
   "Hooks where `cmdr-frame-record-home-frame' is installed if available.")
 
+(defun mailx-global--maybe-enable-home-frames (&rest _)
+  "Install home-frame hooks once cmdr makes its recorder available."
+  (when (fboundp 'cmdr-frame-record-home-frame)
+    (seq-do (lambda (hook) (add-hook hook #'cmdr-frame-record-home-frame))
+            mailx-frame-home-hooks)
+    (remove-hook 'after-load-functions #'mailx-global--maybe-enable-home-frames)))
+
 (defun mailx-global--enable-hooks ()
   "Add hooks managed by `mailx-global-mode'."
   (add-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
   (add-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
-  (when (fboundp 'cmdr-frame-record-home-frame)
-    (dolist (hook mailx-frame-home-hooks)
-      (add-hook hook #'cmdr-frame-record-home-frame))))
+  (if (fboundp 'cmdr-frame-record-home-frame)
+      (mailx-global--maybe-enable-home-frames)
+    (add-hook 'after-load-functions #'mailx-global--maybe-enable-home-frames)))
 
 (defun mailx-global--disable-hooks ()
   "Remove hooks managed by `mailx-global-mode'."
   (remove-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
   (remove-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
-  (when (fboundp 'cmdr-frame-record-home-frame)
-    (dolist (hook mailx-frame-home-hooks)
-      (remove-hook hook #'cmdr-frame-record-home-frame))))
+  (remove-hook 'after-load-functions #'mailx-global--maybe-enable-home-frames)
+  (seq-do (lambda (hook) (remove-hook hook #'cmdr-frame-record-home-frame))
+          mailx-frame-home-hooks))
 
 (defconst mailx--display-buffer-entry
   '(mailx--buffer-p (display-buffer-reuse-window) (reusable-frames . t))
@@ -338,6 +346,7 @@ YEARS defaults to `mailx-compose-complete-years'."
 
 (defun mailx-global--disable-org ()
   "Remove mailx configuration from Org."
+  (remove-hook 'org-load-hook #'mailx-global--enable-org)
   (when (featurep 'mailx-org)
     (mailx-org-teardown)))
 
@@ -355,7 +364,8 @@ YEARS defaults to `mailx-compose-complete-years'."
         (when (featurep 'mu4e) (mailx-global--enable-mu4e))
         (when (featurep 'mu4e-draft) (mailx-global--enable-mu4e-draft))
         (when (featurep 'message) (mailx-global--enable-message))
-        (mailx-global--enable-org))
+        (add-hook 'org-load-hook #'mailx-global--enable-org)
+        (when (featurep 'org) (mailx-global--enable-org)))
     (mailx-global--revert-settings)
     (mailx-global--disable-advice)
     (mailx-global--disable-hooks)
