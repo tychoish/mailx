@@ -131,9 +131,10 @@
           (mailx-sync-and-classify-async "/tmp" "false" (lambda (_p _ev) (setq finished t)))
           (should finished)
           (should-not classified))
+      (set-process-query-on-exit-flag fake-proc nil)
+      (delete-process fake-proc)
       (when (buffer-live-p (process-buffer fake-proc))
-        (kill-buffer (process-buffer fake-proc)))
-      (delete-process fake-proc))))
+        (kill-buffer (process-buffer fake-proc))))))
 
 (provide 'test-mailx-org)
 ;;; test-mailx-org.el ends here

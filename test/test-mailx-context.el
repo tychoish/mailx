@@ -20,6 +20,12 @@
 (require 'mu4e-context)
 (require 'mu4e-compose)
 
+(defvar mu4e-mu-home nil)
+(defvar mu4e--server-process nil)
+(defvar mu4e-contexts nil)
+(defvar mu4e--context-current nil)
+(defvar mu4e--started nil)
+
 (mailx-global-mode 1)
 
 (defmacro mailx-test--with-accounts (&rest body)

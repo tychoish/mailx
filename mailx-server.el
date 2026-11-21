@@ -20,14 +20,14 @@
 (autoload 'mu4e-quit "mu4e" nil t)
 (declare-function mu4e-running-p "mu4e-server")
 
-(defvar mu4e-mu-home)
-(defvar mu4e--started)
-(defvar mu4e--server-indexing)
-(defvar mu4e--update-buffer)
-(defvar mu4e-confirm-quit)
-(defvar mu4e-context-policy)
-(defvar mu4e--server-process)
-(defvar mu4e-pong-func)
+(defvar mu4e-mu-home nil)
+(defvar mu4e--started nil)
+(defvar mu4e--server-indexing nil)
+(defvar mu4e--update-buffer nil)
+(defvar mu4e-confirm-quit nil)
+(defvar mu4e-context-policy nil)
+(defvar mu4e--server-process nil)
+(defvar mu4e-pong-func nil)
 
 (defvar mailx--transitioning nil
   "Non-nil while a database switch is stopping the old mu server.
