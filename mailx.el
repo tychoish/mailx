@@ -44,6 +44,7 @@
 
 (declare-function mailx-org-setup "mailx-org")
 (declare-function mailx-org-teardown "mailx-org")
+(declare-function cmdr-frame-record-home-frame "cmdr-frame")
 
 (eval-when-compile
   (require 'message)
@@ -231,7 +232,7 @@ YEARS defaults to `mailx-compose-complete-years'."
   (remove-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
   (remove-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
   (remove-hook 'after-load-functions #'mailx-global--maybe-enable-home-frames)
-  (seq-do (lambda (hook) (remove-hook hook #'cmdr-frame-record-home-frame))
+  (seq-do (lambda (hook) (remove-hook hook 'cmdr-frame-record-home-frame))
           mailx-frame-home-hooks))
 
 (defconst mailx--display-buffer-entry
