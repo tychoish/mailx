@@ -1,0 +1,10 @@
+*.elc
+*-autoloads.el
+.deps/
+*~
+#*#
+.cask/
+.eask/
+.coverage/
+coverage/
+dist/
