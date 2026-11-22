@@ -37,10 +37,9 @@ commands; entry points that would start a server refuse while this is set.")
 (defvar mailx--stopping-process nil
   "Mu server process still exiting after mu4e detached from it.")
 
-(with-eval-after-load 'mu4e
-  (advice-add 'mu4e--server-start :before #'mailx--await-stopped-server)
-  (advice-add 'mu4e--server-queries :before-while #'mailx--server-running-p)
-  (advice-add 'mu4e-update-index :before #'mailx--start-for-index))
+(advice-add 'mu4e--server-start :before #'mailx--await-stopped-server)
+(advice-add 'mu4e--server-queries :before-while #'mailx--server-running-p)
+(advice-add 'mu4e-update-index :before #'mailx--start-for-index)
 
 (defun mailx--start-for-index (&rest _args)
   "Initialize mu4e before an index update starts a stopped server."
