@@ -155,6 +155,20 @@
         (mailx-select-account)
         (should (eq called 'compose))))))
 
+(ert-deftest mailx-context/account-selector-prepares-contexts-before-switch ()
+  "Run context preparation before invoking the account switcher."
+  (let ((mailx-prepare-context-hook nil)
+        (prepared nil))
+    (add-hook 'mailx-prepare-context-hook (lambda () (setq prepared t)))
+    (cl-letf (((symbol-function 'mu4e-context-switch)
+               (lambda (&rest _) (interactive) (should prepared)))
+              ((symbol-function 'mu4e-compose-context-switch)
+               (lambda (&rest _) (interactive) (should prepared))))
+      (with-temp-buffer
+        (mailx-select-account)
+        (setq prepared nil major-mode 'mu4e-compose-mode)
+        (mailx-select-account)))))
+
 (ert-deftest mailx-context/noninteractive-native-switch-passes-through ()
   (mailx-test--with-accounts
     (let (called)

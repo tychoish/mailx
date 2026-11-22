@@ -46,10 +46,6 @@
 (declare-function mailx-org-teardown "mailx-org")
 (declare-function cmdr-frame-record-home-frame "cmdr-frame")
 
-(eval-when-compile
-  (require 'message)
-  (require 'sendmail))
-
 (defgroup mailx nil
   "Declarative mail routing, classification, and attention views."
   :group 'mail
@@ -100,6 +96,7 @@
 (defvar mu4e-get-mail-command)
 (defvar message-signature-directory)
 (defvar message-signature-file)
+(defvar message-signature)
 (defvar message-sendmail-extra-arguments)
 (defvar mail-host-address)
 (defvar message-send-mail-function)
@@ -564,10 +561,14 @@ address, subject, and body.  For https: URIs, opens the URL in a browser."
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ;; Contexts and database switching
 
+(defvar mailx-prepare-context-hook nil
+  "Hook run before selecting a mail context.")
+
 ;;;###autoload
 (defun mailx-select-account ()
   "Select a mu4e context, updating the current draft when appropriate."
   (interactive)
+  (run-hooks 'mailx-prepare-context-hook)
   (if (derived-mode-p 'mu4e-compose-mode)
       (call-interactively #'mu4e-compose-context-switch)
     (call-interactively #'mu4e-context-switch)))
