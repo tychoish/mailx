@@ -224,6 +224,78 @@
                 (when mailx-global-mode (mailx-global-mode -1))))))
       (when was-enabled (mailx-global-mode 1)))))
 
+(ert-deftest mailx-edge/capture-first-registers-mail-template ()
+  "The first capture sees Mailx templates without a prior Org buffer."
+  (let ((was-enabled mailx-global-mode))
+    (unwind-protect
+        (progn
+          (when was-enabled (mailx-global-mode -1))
+          (let ((features (delq 'org (copy-sequence features)))
+                (org-capture-templates nil)
+                (org-mode-hook nil)
+                (saw-template nil))
+            (cl-letf (((symbol-function 'org-capture)
+                       (lambda (&rest _)
+                         (setq saw-template (assoc "m" org-capture-templates)))))
+              (unwind-protect
+                  (progn
+                    (mailx-global-mode 1)
+                    (provide 'org)
+                    (org-capture)
+                    (should saw-template)
+                    (should-not (advice-member-p #'mailx-global--enable-org
+                                                 'org-capture)))
+                (mailx-global-mode -1)))))
+      (when was-enabled (mailx-global-mode 1)))))
+
+(ert-deftest mailx-edge/capture-org-setup-retries-and-cleans-up ()
+  "An error retains first-capture advice, and disabling removes it."
+  (let ((was-enabled mailx-global-mode))
+    (unwind-protect
+        (progn
+          (when was-enabled (mailx-global-mode -1))
+          (let ((features (delq 'org (copy-sequence features)))
+                (org-mode-hook nil)
+                (calls 0))
+            (cl-letf (((symbol-function 'org-capture) #'ignore)
+                      ((symbol-function 'mailx-org-setup)
+                       (lambda ()
+                         (setq calls (1+ calls))
+                         (when (= calls 1) (error "setup failed")))))
+              (unwind-protect
+                  (progn
+                    (mailx-global-mode 1)
+                    (provide 'org)
+                    (should-error (org-capture))
+                    (should (advice-member-p #'mailx-global--enable-org 'org-capture))
+                    (org-capture)
+                    (should (= calls 2))
+                    (should-not (advice-member-p #'mailx-global--enable-org 'org-capture))
+                    (mailx-global-mode -1)
+                    (should-not (advice-member-p #'mailx-global--enable-org 'orgx-capture)))
+                (mailx-global-mode -1)))))
+      (when was-enabled (mailx-global-mode 1)))))
+
+(ert-deftest mailx-edge/capture-setup-cancelled-before-first-use ()
+  "Disabling Mailx removes pending capture setup without loading Org."
+  (let ((was-enabled mailx-global-mode))
+    (unwind-protect
+        (progn
+          (when was-enabled (mailx-global-mode -1))
+          (let ((features (delq 'org (copy-sequence features)))
+                (org-mode-hook nil))
+            (unwind-protect
+                (progn
+                  (mailx-global-mode 1)
+                  (should (advice-member-p #'mailx-global--enable-org 'org-capture))
+                  (should (advice-member-p #'mailx-global--enable-org 'orgx-capture))
+                  (mailx-global-mode -1)
+                  (should-not (advice-member-p #'mailx-global--enable-org 'org-capture))
+                  (should-not (advice-member-p #'mailx-global--enable-org 'orgx-capture))
+                  (should-not (memq #'mailx-global--enable-org org-mode-hook)))
+              (when mailx-global-mode (mailx-global-mode -1)))))
+      (when was-enabled (mailx-global-mode 1)))))
+
 (ert-deftest mailx-edge/global-mode-lifecycle-and-managed-settings ()
   (unwind-protect
       (progn

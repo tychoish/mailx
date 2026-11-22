@@ -359,15 +359,19 @@ YEARS defaults to `mailx-compose-complete-years'."
 
 (defvar org-mode-hook)
 
-(defun mailx-global--enable-org ()
-  "Apply mailx configuration to Org."
-  (remove-hook 'org-mode-hook #'mailx-global--enable-org)
+(defun mailx-global--enable-org (&rest _)
+  "Apply mailx configuration to Org, including on first capture."
   (require 'mailx-org)
-  (mailx-org-setup))
+  (mailx-org-setup)
+  (remove-hook 'org-mode-hook #'mailx-global--enable-org)
+  (advice-remove 'org-capture #'mailx-global--enable-org)
+  (advice-remove 'orgx-capture #'mailx-global--enable-org))
 
 (defun mailx-global--disable-org ()
   "Remove mailx configuration from Org."
   (remove-hook 'org-mode-hook #'mailx-global--enable-org)
+  (advice-remove 'org-capture #'mailx-global--enable-org)
+  (advice-remove 'orgx-capture #'mailx-global--enable-org)
   (when (featurep 'mailx-org)
     (mailx-org-teardown)))
 
@@ -386,6 +390,8 @@ YEARS defaults to `mailx-compose-complete-years'."
         (when (featurep 'mu4e-draft) (mailx-global--enable-mu4e-draft))
         (when (featurep 'message) (mailx-global--enable-message))
         (add-hook 'org-mode-hook #'mailx-global--enable-org)
+        (advice-add 'org-capture :before #'mailx-global--enable-org)
+        (advice-add 'orgx-capture :before #'mailx-global--enable-org)
         (when (featurep 'org)
           (mailx-global--enable-org)))
     (mailx-global--revert-settings)
