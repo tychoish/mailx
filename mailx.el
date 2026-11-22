@@ -94,6 +94,8 @@
 (defvar mu4e-compose-context-policy)
 (defvar mu4e--context-current)
 (defvar mu4e-get-mail-command)
+(defvar message-directory)
+(defvar message-auto-save-directory)
 (defvar message-signature-directory)
 (defvar message-signature-file)
 (defvar message-signature)
@@ -355,16 +357,17 @@ YEARS defaults to `mailx-compose-complete-years'."
             mailx-global--saved-message-cite-style nil
             mailx-global--message-cite-style-saved-p nil))))
 
-(defvar org-load-hook)
+(defvar org-mode-hook)
 
 (defun mailx-global--enable-org ()
   "Apply mailx configuration to Org."
+  (remove-hook 'org-mode-hook #'mailx-global--enable-org)
   (require 'mailx-org)
   (mailx-org-setup))
 
 (defun mailx-global--disable-org ()
   "Remove mailx configuration from Org."
-  (remove-hook 'org-load-hook #'mailx-global--enable-org)
+  (remove-hook 'org-mode-hook #'mailx-global--enable-org)
   (when (featurep 'mailx-org)
     (mailx-org-teardown)))
 
@@ -382,7 +385,7 @@ YEARS defaults to `mailx-compose-complete-years'."
         (when (featurep 'mu4e) (mailx-global--enable-mu4e))
         (when (featurep 'mu4e-draft) (mailx-global--enable-mu4e-draft))
         (when (featurep 'message) (mailx-global--enable-message))
-        (add-hook 'org-load-hook #'mailx-global--enable-org)
+        (add-hook 'org-mode-hook #'mailx-global--enable-org)
         (when (featurep 'org)
           (mailx-global--enable-org)))
     (mailx-global--revert-settings)

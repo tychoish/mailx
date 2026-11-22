@@ -33,19 +33,19 @@ jobs:
         uses: tychoish/elisp-ci/lint@main
         with:
           elpaish: true
-          dependencies: "hitl mcpkit annotated-completing-read"
+          dependencies: "mcpkit hitl annotated-completing-read"
 
       - name: Run ERT Tests
         uses: tychoish/elisp-ci@main
         with:
           elpaish: true
-          dependencies: "hitl mcpkit annotated-completing-read"
+          dependencies: "mcpkit hitl annotated-completing-read"
 
       - name: Measure Code Coverage
         uses: tychoish/elisp-ci/coverage@main
         with:
           elpaish: true
-          dependencies: "hitl mcpkit annotated-completing-read"
+          dependencies: "mcpkit hitl annotated-completing-read"
           report-format: "lcov"
           output-file: "coverage/lcov.info"
 
