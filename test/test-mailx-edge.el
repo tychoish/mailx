@@ -197,6 +197,33 @@
     (mailx-global--disable-mu4e-draft)
     (should-not mu4e--header-separator)))
 
+(ert-deftest mailx-edge/delimit-headers-configures-lazy-draft ()
+  "Configure the delimiter when mu4e-draft loads after Mailx."
+  (let ((mu4e--header-separator "mu4e default")
+        (mail-header-separator "mailx separator")
+        (advice-already-installed
+         (advice-member-p #'mailx-global--enable-mu4e-draft
+                          'mu4e--delimit-headers))
+        (mailx-global--saved-header-separator nil)
+        (mailx-global--header-separator-saved-p nil))
+    (unwind-protect
+        (progn
+          (mailx-global--enable-advice)
+          (load (locate-library "mu4e-draft") nil t)
+          (setq mu4e--header-separator "mu4e default")
+          (with-temp-buffer
+            (insert "Subject: Example\n\nBody\n")
+            (mu4e--delimit-headers)
+            (should (equal (substring-no-properties mu4e--header-separator)
+                           mail-header-separator))
+            (should (string-match-p "^mailx separator$" (buffer-string)))
+            (mu4e--delimit-headers t)
+            (should (equal (buffer-string) "Subject: Example\n\nBody\n"))))
+      (unless advice-already-installed
+        (mailx-global--disable-advice))
+      (mailx-global--disable-mu4e-draft))
+    (should (equal mu4e--header-separator "mu4e default"))))
+
 (defvar features)
 (defvar org-mode-hook)
 
