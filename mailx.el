@@ -196,12 +196,14 @@ YEARS defaults to `mailx-compose-complete-years'."
 (defun mailx-global--enable-advice ()
   "Enable advice managed by `mailx-global-mode'."
   (advice-add 'basic-save-buffer :before #'mailx--ad-guard-save)
+  (advice-add 'mu4e--draft :before #'mailx-global--enable-mu4e-draft)
   (advice-add 'mu4e--draft :around #'mailx--ad-draft)
   (advice-add 'mu4e--draft :before #'mailx--ad-start-for-draft '((depth . -50))))
 
 (defun mailx-global--disable-advice ()
   "Disable advice managed by `mailx-global-mode'."
   (advice-remove 'basic-save-buffer #'mailx--ad-guard-save)
+  (advice-remove 'mu4e--draft #'mailx-global--enable-mu4e-draft)
   (advice-remove 'mu4e--draft #'mailx--ad-draft)
   (advice-remove 'mu4e--draft #'mailx--ad-start-for-draft))
 
@@ -223,6 +225,12 @@ YEARS defaults to `mailx-compose-complete-years'."
   "Add hooks managed by `mailx-global-mode'."
   (add-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
   (add-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
+  (add-hook 'cmdr-spec-mail-activate-hook #'mailx-global--enable-mu4e)
+  (add-hook 'cmdr-spec-mail-activate-hook #'mailx-global--enable-message)
+  (dolist (hook '(mu4e-main-mode-hook mu4e-headers-mode-hook mu4e-view-mode-hook))
+    (add-hook hook #'mailx-global--enable-mu4e)
+    (add-hook hook #'mailx-global--enable-message))
+  (add-hook 'message-mode-hook #'mailx-global--enable-message)
   (if (fboundp 'cmdr-frame-record-home-frame)
       (mailx-global--maybe-enable-home-frames)
     (add-hook 'after-load-functions #'mailx-global--maybe-enable-home-frames)))
@@ -231,6 +239,12 @@ YEARS defaults to `mailx-compose-complete-years'."
   "Remove hooks managed by `mailx-global-mode'."
   (remove-hook 'mu4e-compose-mode-hook #'mailx-set-up-message-mode-buffer)
   (remove-hook 'mu4e-compose-mode-hook #'whitespace-cleanup)
+  (remove-hook 'cmdr-spec-mail-activate-hook #'mailx-global--enable-mu4e)
+  (remove-hook 'cmdr-spec-mail-activate-hook #'mailx-global--enable-message)
+  (dolist (hook '(mu4e-main-mode-hook mu4e-headers-mode-hook mu4e-view-mode-hook))
+    (remove-hook hook #'mailx-global--enable-mu4e)
+    (remove-hook hook #'mailx-global--enable-message))
+  (remove-hook 'message-mode-hook #'mailx-global--enable-message)
   (remove-hook 'after-load-functions #'mailx-global--maybe-enable-home-frames)
   (seq-do (lambda (hook) (remove-hook hook 'cmdr-frame-record-home-frame))
           mailx-frame-home-hooks))
@@ -255,10 +269,13 @@ YEARS defaults to `mailx-compose-complete-years'."
   '(("unsubscribe" . mailx-unsubscribe)
     ("generate refile rule" . mailx-generate-refile-rule)))
 
+(defvar mailx-global--mu4e-active nil)
+
 (defun mailx-global--enable-mu4e ()
   "Apply mailx configuration to mu4e."
-  (when (featurep 'mu4e)
+  (when (and (featurep 'mu4e) (not mailx-global--mu4e-active))
     (mailx-views-setup)
+    (setq mailx-global--mu4e-active t)
     (when (boundp 'mu4e-headers-actions)
       (dolist (action mailx--mu4e-headers-actions)
         (add-to-list 'mu4e-headers-actions action t)))
@@ -268,8 +285,9 @@ YEARS defaults to `mailx-compose-complete-years'."
 
 (defun mailx-global--disable-mu4e ()
   "Remove mailx configuration from mu4e."
-  (when (featurep 'mu4e)
+  (when mailx-global--mu4e-active
     (mailx-views-teardown)
+    (setq mailx-global--mu4e-active nil)
     (when (boundp 'mu4e-headers-actions)
       (dolist (action mailx--mu4e-headers-actions)
         (setq mu4e-headers-actions (delete action mu4e-headers-actions))))
@@ -280,11 +298,14 @@ YEARS defaults to `mailx-compose-complete-years'."
 (defvar mailx-global--saved-header-separator nil
   "Saved `mu4e--header-separator' value prior to `mailx-global-mode'.")
 
-(defun mailx-global--enable-mu4e-draft ()
+(defvar mailx-global--header-separator-saved-p nil)
+
+(defun mailx-global--enable-mu4e-draft (&rest _args)
   "Apply mailx configuration to mu4e-draft."
   (when (boundp 'mu4e--header-separator)
-    (unless mailx-global--saved-header-separator
-      (setq mailx-global--saved-header-separator mu4e--header-separator))
+    (unless mailx-global--header-separator-saved-p
+      (setq mailx-global--saved-header-separator mu4e--header-separator
+            mailx-global--header-separator-saved-p t))
     (setq mu4e--header-separator
           (propertize (if (boundp 'mail-header-separator)
                           mail-header-separator
@@ -294,23 +315,30 @@ YEARS defaults to `mailx-compose-complete-years'."
 (defun mailx-global--disable-mu4e-draft ()
   "Remove mailx configuration from mu4e-draft."
   (when (boundp 'mu4e--header-separator)
-    (when mailx-global--saved-header-separator
-      (setq mu4e--header-separator mailx-global--saved-header-separator)
-      (setq mailx-global--saved-header-separator nil))))
+    (when mailx-global--header-separator-saved-p
+      (setq mu4e--header-separator mailx-global--saved-header-separator
+            mailx-global--saved-header-separator nil
+            mailx-global--header-separator-saved-p nil))))
 
 (defvar mailx-global--saved-message-cite-style nil
   "Saved `message-cite-style' value prior to `mailx-global-mode'.")
 
+(defvar mailx-global--message-cite-style-saved-p nil)
+(defvar mailx-global--added-discouraged-alternatives nil)
+
 (defun mailx-global--enable-message ()
   "Apply mailx configuration to message."
   (when (boundp 'mm-discouraged-alternatives)
-    (add-to-list 'mm-discouraged-alternatives "text/richtext")
-    (add-to-list 'mm-discouraged-alternatives "text/html"))
+    (dolist (type '("text/richtext" "text/html"))
+      (unless (member type mm-discouraged-alternatives)
+        (push type mm-discouraged-alternatives)
+        (push type mailx-global--added-discouraged-alternatives))))
   (when (and (display-graphic-p) (facep 'message-separator))
     (set-face-attribute 'message-separator nil :background (face-attribute 'default :background nil)))
   (when (boundp 'message-cite-style)
-    (unless mailx-global--saved-message-cite-style
-      (setq mailx-global--saved-message-cite-style message-cite-style))
+    (unless mailx-global--message-cite-style-saved-p
+      (setq mailx-global--saved-message-cite-style message-cite-style
+            mailx-global--message-cite-style-saved-p t))
     (when (boundp 'message-cite-style-gmail)
       (setq message-cite-style
             (seq-remove (lambda (binding)
@@ -321,24 +349,14 @@ YEARS defaults to `mailx-compose-complete-years'."
 (defun mailx-global--disable-message ()
   "Remove mailx configuration from message."
   (when (boundp 'mm-discouraged-alternatives)
-    (setq mm-discouraged-alternatives
-          (delete "text/richtext" (delete "text/html" mm-discouraged-alternatives))))
+    (dolist (type mailx-global--added-discouraged-alternatives)
+      (setq mm-discouraged-alternatives (delete type mm-discouraged-alternatives))))
+  (setq mailx-global--added-discouraged-alternatives nil)
   (when (boundp 'message-cite-style)
-    (when mailx-global--saved-message-cite-style
-      (setq message-cite-style mailx-global--saved-message-cite-style)
-      (setq mailx-global--saved-message-cite-style nil))))
-
-(with-eval-after-load 'mu4e
-  (when (bound-and-true-p mailx-global-mode)
-    (mailx-global--enable-mu4e)))
-
-(with-eval-after-load 'mu4e-draft
-  (when (bound-and-true-p mailx-global-mode)
-    (mailx-global--enable-mu4e-draft)))
-
-(with-eval-after-load 'message
-  (when (bound-and-true-p mailx-global-mode)
-    (mailx-global--enable-message)))
+    (when mailx-global--message-cite-style-saved-p
+      (setq message-cite-style mailx-global--saved-message-cite-style
+            mailx-global--saved-message-cite-style nil
+            mailx-global--message-cite-style-saved-p nil))))
 
 (defvar org-load-hook)
 
