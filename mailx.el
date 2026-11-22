@@ -340,8 +340,7 @@ YEARS defaults to `mailx-compose-complete-years'."
   (when (bound-and-true-p mailx-global-mode)
     (mailx-global--enable-message)))
 
-(defvar orgx-global-mode-hook)
-(defvar orgx-global-mode)
+(defvar org-load-hook)
 
 (defun mailx-global--enable-org ()
   "Apply mailx configuration to Org."
@@ -350,7 +349,7 @@ YEARS defaults to `mailx-compose-complete-years'."
 
 (defun mailx-global--disable-org ()
   "Remove mailx configuration from Org."
-  (remove-hook 'orgx-global-mode-hook #'mailx-global--enable-org)
+  (remove-hook 'org-load-hook #'mailx-global--enable-org)
   (when (featurep 'mailx-org)
     (mailx-org-teardown)))
 
@@ -368,9 +367,8 @@ YEARS defaults to `mailx-compose-complete-years'."
         (when (featurep 'mu4e) (mailx-global--enable-mu4e))
         (when (featurep 'mu4e-draft) (mailx-global--enable-mu4e-draft))
         (when (featurep 'message) (mailx-global--enable-message))
-        (add-hook 'orgx-global-mode-hook #'mailx-global--enable-org)
-        (when (or (bound-and-true-p orgx-global-mode)
-                  (featurep 'org))
+        (add-hook 'org-load-hook #'mailx-global--enable-org)
+        (when (featurep 'org)
           (mailx-global--enable-org)))
     (mailx-global--revert-settings)
     (mailx-global--disable-advice)
