@@ -75,5 +75,13 @@
                2)))
     (should-not (mailx-views--unread-count 'reply))))
 
+(ert-deftest mailx-views-extra-bookmarks-are-appended ()
+  "Extra bookmarks follow the built-ins without disturbing their positions."
+  (let* ((mailx-views-extra-bookmarks
+          '((:name "inbox" :query "m:/inbox" :key ?i)))
+         (bookmarks (mailx-views-bookmarks)))
+    (should (equal (car (last bookmarks)) (car mailx-views-extra-bookmarks)))
+    (should (equal (plist-get (nth 6 bookmarks) :query) mailx-views-records-query))))
+
 (provide 'test-mailx-views)
 ;;; test-mailx-views.el ends here

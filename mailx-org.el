@@ -34,11 +34,11 @@
   "Switch to mail context NAME and wait for its server to be ready."
   (when mailx--transitioning
     (user-error "Wait for the mail database switch to finish"))
-  ;; Loading mailx activates the configured contexts; loading mu4e defines
-  ;; its context API without starting a server in the wrong database.
+  ;; Loading mu4e defines its context API (and `mu4e-contexts') without
+  ;; starting a server in the wrong database; hooks may rely on both.
   (require 'mailx)
-  (run-hooks 'mailx-prepare-context-hook)
   (require 'mu4e)
+  (run-hooks 'mailx-prepare-context-hook)
   (unless (and (mu4e-context-current)
                (equal name (mu4e-context-name (mu4e-context-current))))
     (mailx-server--ensure-no-drafts)

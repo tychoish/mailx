@@ -46,6 +46,11 @@
   "Query for saved receipts and records."
   :type 'string :group 'mailx-views)
 
+(defcustom mailx-views-extra-bookmarks nil
+  "Additional mu4e bookmarks appended after the built-in attention bookmarks.
+Each element is a bookmark plist with `:name', `:query' and `:key'."
+  :type '(repeat plist) :group 'mailx-views)
+
 (defun mailx-views-tier-query (tier)
   "Return a mu query for attention TIER."
   (unless (assq tier mailx-views--tiers)
@@ -62,7 +67,8 @@
             mailx-views--tiers)
    (list (list :name "Receipts and records" :query mailx-views-records-query :key ?r)
          (list :name "Today" :query "date:today..now" :key ?t)
-         (list :name "Last 7 days" :query "date:7d..now" :key ?w))))
+         (list :name "Last 7 days" :query "date:7d..now" :key ?w))
+   mailx-views-extra-bookmarks))
 
 (defun mailx-views--tier (message)
   "Return the recognized attention tier in MESSAGE, or nil."

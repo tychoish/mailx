@@ -579,6 +579,8 @@ address, subject, and body.  For https: URIs, opens the URL in a browser."
 (defun mailx-select-account ()
   "Select a mu4e context, updating the current draft when appropriate."
   (interactive)
+  ;; `mailx-prepare-context-hook' functions may rely on mu4e's context API.
+  (require 'mu4e)
   (run-hooks 'mailx-prepare-context-hook)
   (if (derived-mode-p 'mu4e-compose-mode)
       (call-interactively #'mu4e-compose-context-switch)

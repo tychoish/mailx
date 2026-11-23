@@ -72,7 +72,7 @@
   "Record context preparation."
   (push 'activate mailx-org-test-events))
 
-(ert-deftest mailx-org-cold-start-loads-before-context-lookup ()
+(ert-deftest mailx-org-cold-start-loads-mu4e-before-prepare-hook ()
   (let ((mailx--transitioning nil)
         (mailx-org-test-events nil)
         (mailx-prepare-context-hook '(mailx-org-test-activate))
@@ -88,7 +88,7 @@
               ((symbol-function 'mu4e-context-switch) #'ignore)
               ((symbol-function 'mailx-server-ensure-ready) #'ignore))
       (mailx-ensure-context "work")
-      (should (equal (nreverse mailx-org-test-events) '(mailx activate mu4e lookup))))))
+      (should (equal (nreverse mailx-org-test-events) '(mailx mu4e activate lookup))))))
 
 (ert-deftest mailx-org-setup-registers-link ()
   (let ((org-capture-templates '(("t" "tasks"))))

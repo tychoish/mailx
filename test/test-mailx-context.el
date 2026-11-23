@@ -169,6 +169,22 @@
         (setq prepared nil major-mode 'mu4e-compose-mode)
         (mailx-select-account)))))
 
+(ert-deftest mailx-context/account-selector-loads-mu4e-before-prepare-hook ()
+  "Context preparation hooks run only after mu4e has been required."
+  (let ((mailx-prepare-context-hook nil)
+        (events nil)
+        (original-require (symbol-function 'require)))
+    (add-hook 'mailx-prepare-context-hook (lambda () (push 'prepare events)))
+    (cl-letf (((symbol-function 'require)
+               (lambda (feature &rest args)
+                 (if (eq feature 'mu4e)
+                     (push 'mu4e events)
+                   (apply original-require feature args))))
+              ((symbol-function 'mu4e-context-switch) #'ignore))
+      (with-temp-buffer
+        (mailx-select-account)))
+    (should (equal (nreverse events) '(mu4e prepare)))))
+
 (ert-deftest mailx-context/noninteractive-native-switch-passes-through ()
   (mailx-test--with-accounts
     (let (called)
