@@ -305,11 +305,11 @@ Ignores the message mu4e passes to actions."
     (mailx-views-setup)
     (setq mailx-global--mu4e-active t)
     (when (boundp 'mu4e-headers-actions)
-      (dolist (action mailx--mu4e-headers-actions)
-        (add-to-list 'mu4e-headers-actions action t)))
+      (seq-do (lambda (action) (add-to-list 'mu4e-headers-actions action t))
+              mailx--mu4e-headers-actions))
     (when (boundp 'mu4e-view-actions)
-      (dolist (action mailx--mu4e-view-actions)
-        (add-to-list 'mu4e-view-actions action t)))))
+      (seq-do (lambda (action) (add-to-list 'mu4e-view-actions action t))
+              mailx--mu4e-view-actions))))
 
 (defun mailx-global--disable-mu4e ()
   "Remove mailx configuration from mu4e."
@@ -317,11 +317,13 @@ Ignores the message mu4e passes to actions."
     (mailx-views-teardown)
     (setq mailx-global--mu4e-active nil)
     (when (boundp 'mu4e-headers-actions)
-      (dolist (action mailx--mu4e-headers-actions)
-        (setq mu4e-headers-actions (delete action mu4e-headers-actions))))
+      (seq-do (lambda (action)
+                (setq mu4e-headers-actions (delete action mu4e-headers-actions)))
+              mailx--mu4e-headers-actions))
     (when (boundp 'mu4e-view-actions)
-      (dolist (action mailx--mu4e-view-actions)
-        (setq mu4e-view-actions (delete action mu4e-view-actions))))))
+      (seq-do (lambda (action)
+                (setq mu4e-view-actions (delete action mu4e-view-actions)))
+              mailx--mu4e-view-actions))))
 
 (defvar mailx-global--saved-header-separator nil
   "Saved `mu4e--header-separator' value prior to `mailx-global-mode'.")
