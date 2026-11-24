@@ -116,5 +116,36 @@
                (lambda (&rest _) (error "must not move"))))
       (mailx-bulk--classify-apply 'read nil "/archive"))))
 
+(defun test-mailx-bulk--block (root sender moves)
+  "Apply block-sender for SENDER under ROOT, recording moves in MOVES."
+  (let ((hitl-plan-current-target (list :root root :message-id "a@b")))
+    (write-region "x" nil (expand-file-name "m" root) nil 'silent)
+    (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
+               (lambda (_target) (list :path (expand-file-name "m" root) :from sender)))
+              ((symbol-function 'mailx-bulk--refile-apply)
+               (lambda (folder) (push folder (car moves)))))
+      (mailx-bulk--block-sender-apply))))
+
+(ert-deftest mailx-bulk-block-sender-exact-address-no-duplicates ()
+  (let ((root (make-temp-file "mailx-bulk-" t))
+        (moves (list nil)))
+    (unwind-protect
+        (progn
+          (test-mailx-bulk--block root "Bob <bob@gmail.com>" moves)
+          (test-mailx-bulk--block root "Bob <bob@gmail.com>" moves)
+          (let ((rules (mailx-rules-load root t)))
+            (should (= 1 (length rules)))
+            (should (mailx-eval-condition (mailx-rule-match (car rules))
+                                          '(:from "bob@gmail.com")))
+            (should (mailx-eval-condition (mailx-rule-match (car rules))
+                                          '(:from ("Bob" . "bob@gmail.com"))))
+            (should-not (mailx-eval-condition (mailx-rule-match (car rules))
+                                              '(:from "alice@gmail.com")))
+            (should-not (mailx-eval-condition (mailx-rule-match (car rules))
+                                              '(:from "xbob@gmail.com"))))
+          ;; The message is still trashed on the second apply.
+          (should (= 2 (length (car moves)))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-bulk)
 ;;; test-mailx-bulk.el ends here

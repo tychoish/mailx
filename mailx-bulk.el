@@ -176,22 +176,24 @@ the reviewer is expected to have stopped other writers."
           (insert "\n"))))))
 
 (defun mailx-bulk--block-sender-apply ()
-  "Create a junk rule and trash the current target."
+  "Create an exact-address junk rule (once) and trash the current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
               (resolved (mailx-bulk--resolve-target target))
-              (sender (car (mailx--sender-addresses (map-elt resolved :from))))
-              (domain (and sender (cadr (split-string sender "@")))))
+              (sender (car (mailx--sender-addresses (map-elt resolved :from)))))
     (let* ((rules (mailx-rules-load root))
-           (rule-id (intern (format "block-%s" (replace-regexp-in-string "[^[:alnum:]]" "-" domain))))
-           (trash (if (boundp 'mailx-trash-folder) mailx-trash-folder "/trash"))
-           (rule (make-mailx-rule :id rule-id
-                                  :match (list :from (format "@%s\\'" (regexp-quote domain)))
-                                  :folder trash
-                                  :tier 'junk
-                                  :source 'manual
-                                  :created (format-time-string "%Y-%m-%d"))))
-      (mailx-rules-save root (append rules (list rule)))
+           (rule-id (intern (format "block-%s" (replace-regexp-in-string "[^[:alnum:]]" "-" sender))))
+           (trash (if (boundp 'mailx-trash-folder) mailx-trash-folder "/trash")))
+      (unless (seq-some (lambda (rule) (eq (mailx-rule-id rule) rule-id)) rules)
+        (mailx-rules-save
+         root
+         (append rules
+                 (list (make-mailx-rule :id rule-id
+                                        :match (list :from (format "\\`%s\\'" (regexp-quote sender)))
+                                        :folder trash
+                                        :tier 'junk
+                                        :source 'manual
+                                        :created (format-time-string "%Y-%m-%d"))))))
       (when-let* ((path (map-elt resolved :path))
                   ((file-exists-p path)))
         (mailx-bulk--refile-apply trash)))))
@@ -245,9 +247,9 @@ the reviewer is expected to have stopped other writers."
     :apply #'mailx-bulk--unsubscribe-apply
     :describe (lambda () "Record unsubscribed sender"))
   (hitl-plan-register-op 'mailx 'block-sender
-    :key ?b :label "Block sender" :queueable t
+    :key ?b :label "Block sender (exact address)" :queueable t
     :apply #'mailx-bulk--block-sender-apply
-    :describe (lambda () "Block sender and trash"))
+    :describe (lambda () "Block exact sender address and trash"))
   (hitl-plan-register-op 'mailx 'expire-older
     :key ?e :label "Expire older"
     :read-args (lambda () (list (read-number "Days: " 30)))
