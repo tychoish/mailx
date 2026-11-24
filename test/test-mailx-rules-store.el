@@ -153,5 +153,35 @@
          (should (= 1 (length (mailx-rules-load root t))))
          (should (string-match-p "risky" (car warned))))))))
 
+(ert-deftest mailx-rules-find-file-opens-path-without-creating ()
+  (let ((root (make-temp-file "mailx-test" t))
+        opened)
+    (unwind-protect
+        (cl-letf (((symbol-function 'find-file)
+                   (lambda (file &rest _) (setq opened file))))
+          (mailx-rules-find-file root)
+          (should (equal (mailx-rules-file root) opened))
+          (should-not (file-exists-p (mailx-rules-file root)))
+          (should-not (file-exists-p (expand-file-name "tools" root))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-rules-explain-lists-winner-and-shadowed-rules ()
+  (let ((root (make-temp-file "mailx-test" t)))
+    (unwind-protect
+        (progn
+          (mailx-rules-save
+           root (list (make-mailx-rule :id 'broad :match '(:from "example") :tier 'junk
+                                       :folder "/trash")
+                      (make-mailx-rule :id 'unrelated :match '(:subject "zzz") :tier 'read)
+                      (make-mailx-rule :id 'boss :match '(:from "boss@example") :tier 'reply)))
+          (let ((text (mailx-explain-rules-text root '(:from "boss@example.com" :subject "hi"))))
+            (should (string-match-p "broad" text))
+            (should (< (string-match "broad" text) (string-match "boss" text)))
+            (should (string-match-p "Shadowed" text))
+            (should-not (string-match-p "unrelated" text)))
+          (should (string-match-p "No rule matches"
+                                  (mailx-explain-rules-text root '(:from "nobody@elsewhere")))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-rules-store)
 ;;; test-mailx-rules-store.el ends here

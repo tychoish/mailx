@@ -229,6 +229,8 @@ Rules also drive delivery-time filters.  ~mailx-rules-export-all~ writes ~tools/
 | ~mailx-review~ | Review, edit and apply proposed classifications. |
 | ~mailx-classify-batch~ | Classify unclassified mail; returns a summary with ~:errors~, ~:unresolved~ and ~:correspondents~. |
 | ~mailx-sent-query~ | Mu query for sent mail, used to refresh the correspondent cache. |
+| ~mailx-rules-find-file~ | Open the current maildir's rules file. |
+| ~mailx-explain-rules~ | Show which rule classifies the message at point and which later rules it shadows. |
 | ~mailx-capture-task~ | Capture an Org task and automatically refile upon completion. |
 | ~mailx-mcp-register~ | Register MCP service and inspection tools. |
 

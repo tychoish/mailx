@@ -19,6 +19,9 @@
 (require 'seq)
 (require 'subr-x)
 
+(declare-function mailx-current-maildir "mailx" ())
+(declare-function mu4e-message-at-point "mu4e-message" (&optional noerror))
+
 (defgroup mailx-rules nil
   "Declarative mail classification rules."
   :group 'mailx
@@ -270,6 +273,43 @@ form and is not a guarantee."
                                (mailx--field-strings (map-elt msg field))))
                    fields)))
       (_ (error "Unknown mailx condition: %S" op)))))
+
+;;;###autoload
+(defun mailx-rules-find-file (&optional root)
+  "Visit the rules file for mail ROOT, default `mailx-current-maildir'."
+  (interactive)
+  (find-file (mailx-rules-file (or root (mailx-current-maildir)))))
+
+(defun mailx-explain-rules-text (root msg)
+  "Return a description of the rules in ROOT that match message plist MSG.
+Name the winning rule (first match) and every later, shadowed matching rule."
+  (let ((matches (seq-filter (lambda (rule)
+                               (mailx-eval-condition (mailx-rule-match rule) msg))
+                             (mailx-rules-load root))))
+    (if (null matches)
+        "No rule matches this message.\n"
+      (let ((describe (lambda (rule)
+                        (format "  %s  match %S  folder %s  tier %s  tags %S\n"
+                                (mailx-rule-id rule) (mailx-rule-match rule)
+                                (or (mailx-rule-folder rule) "-")
+                                (or (mailx-rule-tier rule) "-")
+                                (mailx-rule-tags rule)))))
+        (concat "Classified by (first match wins):\n"
+                (funcall describe (car matches))
+                (when (cdr matches)
+                  (concat "Shadowed (later rules that also match):\n"
+                          (mapconcat describe (cdr matches) ""))))))))
+
+;;;###autoload
+(defun mailx-explain-rules (&optional msg)
+  "Show the rule classifying MSG and the later rules it shadows.\nMSG defaults to the mu4e message at point."
+  (interactive)
+  (let* ((msg (or msg (mu4e-message-at-point)
+                  (user-error "No message at point")))
+         (root (mailx-current-maildir))
+         (text (mailx-explain-rules-text root msg)))
+    (with-help-window "*mailx rules*"
+      (princ text))))
 
 (defun mailx-classify-by-rules (msg rules)
   "Return first of RULES matching MSG, or nil."
