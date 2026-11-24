@@ -406,6 +406,43 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
           (should-not (string-match-p "#s(" (error-message-string err)))
           (should (string-match-p "prop-a" (error-message-string err))))))))
 
+(defun test-mailx-review--promote-prompt (existing)
+  "Promote the first canned entry with EXISTING rules and return the prompt."
+  (let ((prompt nil))
+    (test-mailx-review--with-buffer
+      (cl-letf (((symbol-function 'mailx-rules-load) (lambda (&rest _) existing))
+                ((symbol-function 'mailx-test-rule) (lambda (&rest _) '(:count 1 :subjects nil)))
+                ((symbol-function 'yes-or-no-p) (lambda (p) (setq prompt p) nil)))
+        (mailx-review-promote-entry (car mailx-review--entries) "/tmp/mail/")))
+    prompt))
+
+(ert-deftest mailx-review-promote-prompt-names-a-shadowing-rule ()
+  (let ((shadow (make-mailx-rule :id 'broad :match '(:from "example") :tier 'junk)))
+    (should (string-match-p "shadowed by rule broad"
+                            (test-mailx-review--promote-prompt (list shadow))))
+    (should-not (string-match-p
+                 "shadowed"
+                 (test-mailx-review--promote-prompt
+                  (list (make-mailx-rule :id 'other :match '(:from "nomatch") :tier 'junk)))))
+    (should-not (string-match-p "shadowed" (test-mailx-review--promote-prompt nil)))))
+
+(ert-deftest mailx-review-promote-passes-scope-and-says-to-reclassify ()
+  (test-mailx-review--with-buffer
+    (let ((scope 'unset)
+          (messages nil))
+      (cl-letf (((symbol-function 'mailx-review-promote-entry)
+                 (lambda (_entry _root &optional s)
+                   (setq scope s)
+                   (make-mailx-rule :id 'r1 :match '(:from "x"))))
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (push (apply #'format format-string args) messages))))
+        (mailx-review-promote)
+        (should-not scope)
+        (mailx-review-promote 'address)
+        (should (eq scope 'address)))
+      (should (string-match-p "g to reclassify" (car messages))))))
+
 (ert-deftest mailx-review-revert-confirms-before-discarding-decisions ()
   (test-mailx-review--with-buffer
     (mailx-review-mark (list (car mailx-review--entries)) 'accepted)

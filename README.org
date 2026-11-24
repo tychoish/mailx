@@ -159,7 +159,7 @@ Run ~M-x mailx-review~, or pick /review classifications/ from the mu4e actions m
 | ~a~ / ~s~ | Accept / skip the entry at point (or every entry in the region) and move on. |
 | ~*~ | Accept every pending entry that already has a tier and folder. |
 | ~t~ / ~f~ / ~l~ | Set the tier, folder or tags of the entry at point (or region). |
-| ~r~ | Save a rule reproducing the entry.  The match covers the sender's whole domain; the preview count is shown before you confirm. |
+| ~r~ | Save a rule reproducing the entry.  It matches the message's mailing list when it has one, the exact sender address for a domain in ~mailx-freemail-domains~ (gmail.com and similar), else the sender's whole domain; ~C-u r~ lets you choose address, domain or list.  The confirmation shows the match count and, when an earlier rule already matches this message (first match wins), which rule shadows the new one.  Existing rules are never reordered; press ~g~ afterwards to reclassify the other entries. |
 | ~x~ | Turn accepted entries into a ~mailx~ hitl plan and open it for review. |
 | ~o~ | Reopen the hitl plan holding the planned entry at point (its id is also messaged when you press ~x~). |
 | ~v~ | View the raw message file. |

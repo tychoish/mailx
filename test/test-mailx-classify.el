@@ -187,6 +187,38 @@
       (should (member "receipt" (map-elt res :tags)))
       (should (member "retain" (map-elt res :tags))))))
 
+(defconst test-mailx-classify--scoped-class '(:folder "/lists" :tier read :tags nil))
+
+(defun test-mailx-classify--scoped-rule (msg &optional scope)
+  "Propose a rule for MSG with SCOPE and check it matches MSG."
+  (let ((rule (mailx-classify-propose-rule msg test-mailx-classify--scoped-class scope)))
+    (should (mailx-eval-condition (mailx-rule-match rule) msg))
+    (mailx-rule-match rule)))
+
+(ert-deftest mailx-classify-propose-rule-scope-defaults ()
+  (let ((from '(:from ((:name "X" :email "x@acme.example.com")) :subject "s"))
+        (free '(:from ((:name "X" :email "x@gmail.com")) :subject "s"))
+        (listed '(:from ((:name "X" :email "x@acme.example.com")) :subject "s"
+                  :list "dev.lists.example.org")))
+    (should (eq (car (test-mailx-classify--scoped-rule from)) :from))
+    (should (string-match-p "@acme" (cadr (test-mailx-classify--scoped-rule from))))
+    (should (equal (test-mailx-classify--scoped-rule free)
+                   (list :from (format "\\`%s\\'" (regexp-quote "x@gmail.com")))))
+    (should (eq (car (test-mailx-classify--scoped-rule listed)) :list))))
+
+(ert-deftest mailx-classify-propose-rule-explicit-scope-overrides-defaults ()
+  (let ((listed '(:from ((:name "X" :email "x@gmail.com")) :subject "s"
+                  :list "dev.lists.example.org")))
+    (should (eq (car (test-mailx-classify--scoped-rule listed 'address)) :from))
+    (should (string-match-p "@gmail" (cadr (test-mailx-classify--scoped-rule listed 'domain))))
+    (should (eq (car (test-mailx-classify--scoped-rule listed 'list)) :list))
+    (should-error (mailx-classify-propose-rule
+                   '(:from ((:name "X" :email "x@a.example.com")) :subject "s")
+                   test-mailx-classify--scoped-class 'list)
+                  :type 'user-error)
+    (should-error (mailx-classify-propose-rule listed test-mailx-classify--scoped-class 'bogus)
+                  :type 'user-error)))
+
 (ert-deftest mailx-classify-propose-rule-derives-match ()
   (let* ((msg '(:from ((:name "Vendor" :email "billing@acme.example.com"))
                 :subject "Monthly Invoice"))

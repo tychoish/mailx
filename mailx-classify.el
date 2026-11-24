@@ -496,28 +496,57 @@ or destination.  This function cannot lock out delivery or sync clients."
             target)
         (when (file-exists-p temp) (delete-file temp))))))
 
-(defun mailx-classify-propose-rule (message classification)
-  "Propose a candidate `mailx-rule' struct for MESSAGE based on CLASSIFICATION."
-  (let* ((senders (mailx--sender-addresses (map-elt message :from)))
-         (sender (car senders))
+(defcustom mailx-freemail-domains
+  '("gmail.com" "googlemail.com" "outlook.com" "hotmail.com" "yahoo.com"
+    "icloud.com" "proton.me" "protonmail.com")
+  "Domains shared by many unrelated senders.
+`mailx-classify-propose-rule' proposes an exact-address rule for these
+rather than one covering the whole domain."
+  :type '(repeat string)
+  :group 'mailx-classify)
+
+(defun mailx-classify-propose-rule (message classification &optional scope)
+  "Propose a candidate `mailx-rule' struct for MESSAGE based on CLASSIFICATION.
+SCOPE is `list', `address' or `domain' and selects what the rule matches.
+It defaults to `list' when MESSAGE has a :list value, `address' when the
+sender's domain is in `mailx-freemail-domains', else `domain'; without a
+sender the subject is matched.  An unusable SCOPE signals a `user-error'."
+  (let* ((sender (car (mailx--sender-addresses (map-elt message :from))))
          (subject (map-elt message :subject))
-         (folder (map-elt classification :folder))
-         (tier (map-elt classification :tier))
-         (tags (map-elt classification :tags))
          (domain (and sender (cadr (split-string sender "@"))))
+         (list-id (let ((value (map-elt message :list)))
+                    (and (stringp value) (not (string-empty-p value)) value)))
+         (explicit scope)
+         (scope (or scope
+                    (cond
+                     (list-id 'list)
+                     ((member domain mailx-freemail-domains) 'address)
+                     (t 'domain))))
+         (anchored (lambda (text) (format "\\`%s\\'" (regexp-quote text))))
          (match (cond
-                 (domain (list :from (format "@%s\\'" (regexp-quote domain))))
-                 (sender (list :from (regexp-quote sender)))
+                 ((not (memq scope '(list address domain)))
+                  (user-error "Unknown rule scope: %S" scope))
+                 ((and (eq scope 'list) list-id)
+                  (list :list (funcall anchored list-id)))
+                 ((and (eq scope 'address) sender)
+                  (list :from (funcall anchored sender)))
+                 ((and (eq scope 'domain) domain)
+                  (list :from (format "@%s\\'" (regexp-quote domain))))
+                 (explicit
+                  (user-error "Message has no %s to build a %s rule from"
+                              (if (eq scope 'list) "list header" "sender") scope))
                  (subject (list :subject (regexp-quote subject)))
                  (t (error "Cannot propose rule without sender or subject"))))
          (id (intern (format "prop-%s-%s"
-                             (or (and sender (car (split-string sender "@"))) "rule")
+                             (if (eq (car match) :list)
+                                 (replace-regexp-in-string "[^[:alnum:]]+" "-" list-id)
+                               (or (and sender (car (split-string sender "@"))) "rule"))
                              (format-time-string "%s")))))
     (make-mailx-rule :id id
                      :match match
-                     :folder folder
-                     :tier tier
-                     :tags tags
+                     :folder (map-elt classification :folder)
+                     :tier (map-elt classification :tier)
+                     :tags (map-elt classification :tags)
                      :source 'proposal
                      :created (format-time-string "%Y-%m-%d"))))
 

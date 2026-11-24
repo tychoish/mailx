@@ -347,18 +347,22 @@ Entries sharing a tier, folder and tags share one `classify' operation."
     (hitl-plan-review (or (hitl-plan-get id nil 'mailx)
                           (user-error "Plan %s no longer exists" id)))))
 
-(defun mailx-review-promote-entry (entry root)
+(defun mailx-review-promote-entry (entry root &optional scope)
   "Offer to save a rule reproducing ENTRY's proposal under ROOT.
-Return the saved rule, or nil when declined.  The rule matches the sender's
-whole domain, so the confirmation shows how many messages it would catch."
+SCOPE is passed to `mailx-classify-propose-rule'.  Return the saved rule,
+or nil when declined.  The confirmation shows how many messages the rule
+would catch and names an existing rule that already matches this message,
+since the first matching rule wins and the new one is appended last."
   (unless (map-elt entry :tier)
     (user-error "Set a tier before promoting to a rule"))
   (let* ((rule (mailx-classify-propose-rule
                 (map-elt entry :message)
                 (list :tier (map-elt entry :tier)
                       :folder (map-elt entry :folder)
-                      :tags (map-elt entry :tags))))
-         (existing (mailx-rules-load root)))
+                      :tags (map-elt entry :tags))
+                scope))
+         (existing (mailx-rules-load root))
+         (shadow (mailx-classify-by-rules (map-elt entry :message) existing)))
     (when (seq-some (lambda (other) (eq (mailx-rule-id other) (mailx-rule-id rule)))
                     existing)
       (user-error "Rule ID already exists: %s" (mailx-rule-id rule)))
@@ -368,21 +372,31 @@ whole domain, so the confirmation shows how many messages it would catch."
                          (error-message-string err))))
     (let ((preview (mailx-test-rule root rule)))
       (when (yes-or-no-p
-             (format "Rule %s matches %d messages%s; save? "
+             (format "Rule %s matches %d messages%s%s; save? "
                      (mailx-rule-id rule)
                      (map-elt preview :count)
                      (if-let* ((subjects (map-elt preview :subjects)))
                          (format " (e.g. %s)" (string-join subjects "; "))
+                       "")
+                     (if shadow
+                         (format ", but is shadowed by rule %s for this message"
+                                 (mailx-rule-id shadow))
                        "")))
         (mailx-rules-save root (append existing (list rule)))
         rule))))
 
-(defun mailx-review-promote ()
-  "Save a rule reproducing the proposal at point."
-  (interactive)
+(defun mailx-review-promote (&optional scope)
+  "Save a rule reproducing the proposal at point.
+The rule matches the message's list, else its sender's address or domain
+\(see `mailx-classify-propose-rule').  With a prefix argument, choose
+SCOPE: address, domain or list."
+  (interactive
+   (list (when current-prefix-arg
+           (intern (completing-read "Rule scope: " '("address" "domain" "list") nil t)))))
   (when-let* ((rule (mailx-review-promote-entry (mailx-review--entry-at-point)
-                                                mailx-review--root)))
-    (message "Saved mailx rule %s" (mailx-rule-id rule))))
+                                                mailx-review--root scope)))
+    (message "Saved mailx rule %s; press g to reclassify the other entries"
+             (mailx-rule-id rule))))
 
 (defun mailx-review-view ()
   "Show the raw message file at point."
