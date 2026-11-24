@@ -161,6 +161,7 @@ Run ~M-x mailx-review~, or pick /review classifications/ from the mu4e actions m
 | ~t~ / ~f~ / ~l~ | Set the tier, folder or tags of the entry at point (or region). |
 | ~r~ | Save a rule reproducing the entry.  The match covers the sender's whole domain; the preview count is shown before you confirm. |
 | ~x~ | Turn accepted entries into a ~mailx~ hitl plan and open it for review. |
+| ~o~ | Reopen the hitl plan holding the planned entry at point (its id is also messaged when you press ~x~). |
 | ~v~ | View the raw message file. |
 | ~g~ | Reclassify (asks first if that would discard decisions). |
 

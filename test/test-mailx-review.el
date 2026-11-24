@@ -8,6 +8,7 @@
 (require 'ert)
 (require 'cl-lib)
 (require 'mailx-review)
+(require 'hitl-plan)
 
 (defconst test-mailx-review--dir
   (let ((dir (make-temp-file "mailx-review-" t)))
@@ -176,8 +177,8 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
      (test-mailx-review--with-buffer
        (let ((messages nil))
          (mailx-review-mark (list (car mailx-review--entries)) 'accepted)
-         (cl-letf (((symbol-function 'mailx-review-create-plan) (lambda (&rest _) 'plan))
-                   ((symbol-function 'mailx-bulk--mu4e-active-p) (lambda (_root) active))
+         (cl-letf (((symbol-function 'mailx-review-create-plan) (lambda (&rest _) (hitl-plan--make :id "plan-1")))
+                      ((symbol-function 'mailx-bulk--mu4e-active-p) (lambda (_root) active))
                    ((symbol-function 'hitl-plan-review) #'ignore)
                    ((symbol-function 'message)
                     (lambda (format-string &rest args)
@@ -187,6 +188,49 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
                           t)
                      (not active))))))
    '(nil t)))
+
+(ert-deftest mailx-review-apply-records-the-plan-id-on-planned-entries ()
+  (test-mailx-review--with-buffer
+    (let ((entry (car mailx-review--entries))
+          (messages nil))
+      (mailx-review-mark (list entry) 'accepted)
+      (cl-letf (((symbol-function 'mailx-review-create-plan) (lambda (&rest _) (hitl-plan--make :id "plan-1")))
+                ((symbol-function 'mailx-bulk--mu4e-active-p) (lambda (_root) t))
+                ((symbol-function 'hitl-plan-review) #'ignore)
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (push (apply #'format format-string args) messages))))
+        (mailx-review-apply))
+      (should (eq (map-elt entry :status) 'planned))
+      (should (equal (map-elt entry :plan) "plan-1"))
+      (should (seq-some (lambda (m) (string-match-p "plan-1" m)) messages))
+      (should-not (map-elt (cadr mailx-review--entries) :plan)))))
+
+(ert-deftest mailx-review-reopen-plan-reviews-the-entry-plan ()
+  (test-mailx-review--with-buffer
+    (let ((entry (car mailx-review--entries))
+          (reviewed nil))
+      (map-put! entry :status 'planned)
+      (map-put! entry :plan "plan-1")
+      (cl-letf (((symbol-function 'hitl-plan-get) (lambda (id &rest _) (list 'plan id)))
+                ((symbol-function 'hitl-plan-review) (lambda (plan) (setq reviewed plan))))
+        (mailx-review-reopen-plan))
+      (should (equal reviewed '(plan "plan-1"))))))
+
+(ert-deftest mailx-review-reopen-plan-errors-without-a-plan ()
+  (test-mailx-review--with-buffer
+    (let ((entry (car mailx-review--entries)))
+      (should-error (mailx-review-reopen-plan) :type 'user-error)
+      (map-put! entry :status 'planned)
+      (map-put! entry :plan "gone")
+      (cl-letf (((symbol-function 'hitl-plan-get) (lambda (&rest _) nil))
+                ((symbol-function 'hitl-plan-review)
+                 (lambda (&rest _) (error "must not review"))))
+        (let ((err (should-error (mailx-review-reopen-plan) :type 'user-error)))
+          (should (string-match-p "gone" (error-message-string err))))))))
+
+(ert-deftest mailx-review-reopen-plan-key-is-bound ()
+  (should (eq (lookup-key mailx-review-mode-map "o") 'mailx-review-reopen-plan)))
 
 (ert-deftest mailx-review-load-lists-proposals-and-unresolved ()
   (test-mailx-review--with-buffer
@@ -275,7 +319,7 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
       (mailx-review-edit (list entry) :folder "/archive")
       (mailx-review-mark mailx-review--entries 'accepted)
       (cl-letf (((symbol-function 'mailx-bulk-ensure-domain) #'ignore)
-                ((symbol-function 'hitl-plan-create) (lambda (&rest _) 'the-plan))
+                ((symbol-function 'hitl-plan-create) (lambda (&rest _) (hitl-plan--make :id "plan-1")))
                 ((symbol-function 'hitl-plan-add-op)
                  (lambda (_plan op targets) (push (cons op targets) ops)))
                 ((symbol-function 'hitl-plan-review) (lambda (plan) (setq reviewed plan))))
@@ -285,7 +329,7 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
       (should (equal (caar ops) '(classify read ("x") "/archive")))
       (should (equal (seq-map (lambda (target) (map-elt target :message-id)) (cdar ops))
                      '("a@example.org" "b@example.org")))
-      (should (eq reviewed 'the-plan))
+      (should (equal (hitl-plan-id reviewed) "plan-1"))
       (should (equal (seq-map (lambda (e) (map-elt e :status)) mailx-review--entries)
                      '(planned planned))))))
 

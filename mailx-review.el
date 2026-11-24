@@ -28,6 +28,8 @@
 (require 'mailx-bulk)
 
 (declare-function annotated-completing-read "annotated-completing-read")
+(declare-function hitl-plan-id "hitl-plan" (plan))
+(declare-function hitl-plan-get "hitl-plan" (id &optional directory domain))
 (declare-function hitl-plan-review "hitl-plan-ui" (plan-or-id &optional display))
 (declare-function mu4e-context-current "mu4e-context")
 (declare-function mu4e-context-name "mu4e-context")
@@ -52,7 +54,8 @@ SHORT appears in the mode line, LONG is messaged once when loading.")
 (defvar-local mailx-review--entries nil
   "Review entries, in display order.
 Each entry is a plist with :message :tier :folder :tags :source :status.
-:status is one of `pending', `accepted', `skipped' or `planned'.")
+:status is one of `pending', `accepted', `skipped' or `planned'.
+A planned entry also has :plan, the id of the hitl plan holding it.")
 
 ;;; Entries
 
@@ -320,12 +323,29 @@ Entries sharing a tier, folder and tags share one `classify' operation."
                               mailx-review--entries)))
     (unless accepted
       (user-error "No accepted entries"))
-    (let ((plan (mailx-review-create-plan accepted mailx-review--root)))
-      (seq-do (lambda (entry) (map-put! entry :status 'planned)) accepted)
+    (let* ((plan (mailx-review-create-plan accepted mailx-review--root))
+           (id (hitl-plan-id plan)))
+      (seq-do (lambda (entry)
+                (map-put! entry :status 'planned)
+                (map-put! entry :plan id))
+              accepted)
       (mailx-review--render)
-      (unless (mailx-bulk--mu4e-active-p mailx-review--root)
-        (message "Applying moves files directly; afterwards %s" mailx-review--stale-hint))
+      (message "Plan %s created with %d entries; press o to reopen it%s"
+               id (length accepted)
+               (if (mailx-bulk--mu4e-active-p mailx-review--root)
+                   ""
+                 (format "; applying moves files directly, afterwards %s"
+                         mailx-review--stale-hint)))
       (hitl-plan-review plan))))
+
+(defun mailx-review-reopen-plan ()
+  "Reopen the hitl plan of the planned entry at point for review."
+  (interactive)
+  (let ((id (map-elt (mailx-review--entry-at-point) :plan)))
+    (unless id
+      (user-error "Entry is not in a plan"))
+    (hitl-plan-review (or (hitl-plan-get id nil 'mailx)
+                          (user-error "Plan %s no longer exists" id)))))
 
 (defun mailx-review-promote-entry (entry root)
   "Offer to save a rule reproducing ENTRY's proposal under ROOT.
@@ -387,6 +407,7 @@ whole domain, so the confirmation shows how many messages it would catch."
   "l" #'mailx-review-set-tags
   "r" #'mailx-review-promote
   "x" #'mailx-review-apply
+  "o" #'mailx-review-reopen-plan
   "v" #'mailx-review-view)
 
 (define-derived-mode mailx-review-mode tabulated-list-mode "Mailx-Review"
