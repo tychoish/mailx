@@ -79,5 +79,24 @@
               (should (equal (mailx-mcp--list-messages root 1) [])))))
       (delete-directory root t))))
 
+(ert-deftest test-mailx-mcp-add-rule-with-or-condition-survives-export ()
+  (let ((root (make-temp-file "mailx-mcp-test-" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name ".mu" root))
+          (let ((mailx-mcp-allowed-roots (list root)))
+            (let ((res (mailx-mcp--add-rule
+                        root '(:id "either" :folder "/y"
+                               :match (:or (:from "b@example") (:from "c@example"))))))
+              (should (equal "ok" (plist-get res :status)))
+              (should (plist-get res :skipped)))
+            (should (equal 1 (length (mailx-rules-load root t))))
+            (should (equal "ok" (plist-get (mailx-mcp--add-rule
+                                            root '(:id "other" :folder "/z"
+                                                   :match (:from "d@example")))
+                                           :status)))
+            (should (equal 2 (length (mailx-rules-load root t))))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-mcp)
 ;;; test-mailx-mcp.el ends here

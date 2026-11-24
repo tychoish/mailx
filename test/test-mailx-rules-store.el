@@ -6,6 +6,7 @@
 
 ;;; Code:
 (require 'ert)
+(require 'cl-lib)
 (require 'mailx)
 (require 'mailx-rules)
 
@@ -82,6 +83,51 @@
      (lambda (root)
        (should (equal (list rule) (mailx-rules-load root t)))
        (should (equal (list rule) (mailx-rules-load root)))))))
+
+(defun mailx-test--file-string (file)
+  "Return contents of FILE."
+  (with-temp-buffer (insert-file-contents file) (buffer-string)))
+
+(ert-deftest mailx-rules-export-all-skips-inexpressible-rules ()
+  (let ((root (make-temp-file "mailx-test" t)))
+    (unwind-protect
+        (progn
+          (mailx-rules-save
+           root (list (make-mailx-rule :id 'plain :match '(:from "a@example") :folder "/x")
+                      (make-mailx-rule :id 'either :match '(:or (:from "b@example")
+                                                                (:from "c@example"))
+                                       :folder "/y")))
+          (let ((res (mailx-rules-export-all root)))
+            (should (equal 2 (plist-get res :count)))
+            (should (assq 'either (plist-get res :skipped)))
+            (should-not (assq 'plain (plist-get res :skipped)))
+            (should (string-match-p "a@example" (mailx-test--file-string (plist-get res :procmail))))
+            (should (string-match-p "a@example" (mailx-test--file-string (plist-get res :fdm))))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-rules-export-all-failed-conversion-leaves-file-untouched ()
+  (let ((root (make-temp-file "mailx-test" t)))
+    (unwind-protect
+        (progn
+          (mailx-rules-save
+           root (list (make-mailx-rule :id 'plain :match '(:from "a@example") :folder "/x")))
+          (let ((fdm (expand-file-name "tools/fdm.conf" root)))
+            (with-temp-file fdm (insert "OLD"))
+            (cl-letf (((symbol-function 'mailx--rule-to-fdm)
+                       (lambda (&rest _) (error "boom"))))
+              (let ((res (mailx-rules-export-all root)))
+                (should (assq 'plain (plist-get res :skipped)))))
+            (should (equal "OLD" (mailx-test--file-string fdm)))
+            (should-not (directory-files (expand-file-name "tools" root) nil "\\.[0-9a-zA-Z]\\{6\\}\\'" ))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-rules-export-all-no-rules-writes-nothing ()
+  (let ((root (make-temp-file "mailx-test" t)))
+    (unwind-protect
+        (let ((res (mailx-rules-export-all root)))
+          (should (equal 0 (plist-get res :count)))
+          (should-not (file-exists-p (plist-get res :fdm))))
+      (delete-directory root t))))
 
 (provide 'test-mailx-rules-store)
 ;;; test-mailx-rules-store.el ends here

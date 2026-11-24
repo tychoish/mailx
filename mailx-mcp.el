@@ -130,8 +130,18 @@
     (when (seq-some (lambda (r) (eq (mailx-rule-id r) id)) existing)
       (error "Rule ID already exists: %s" id))
     (mailx-rules-save root (append existing (list rule)))
-    (mailx-rules-export-all root)
-    (list :status "ok" :id (symbol-name id) :total_rules (length (mailx-rules-load root)))))
+    ;; The rule is already persisted; an export problem is reported, not fatal.
+    (let ((export (condition-case err
+                      (mailx-rules-export-all root)
+                    (error (list :error (error-message-string err))))))
+      (append
+       (list :status "ok" :id (symbol-name id) :total_rules (length (mailx-rules-load root)))
+       (when (plist-get export :error)
+         (list :export_error (plist-get export :error)))
+       (when (plist-get export :skipped)
+         (list :skipped (vconcat (seq-map (lambda (pair)
+                                            (format "%s: %s" (car pair) (cdr pair)))
+                                          (plist-get export :skipped)))))))))
 
 (defun mailx-mcp--stage-triage-plan (root title items)
   "Create a `mailx' hitl-plan for ITEMS in ROOT."
