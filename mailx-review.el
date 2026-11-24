@@ -142,14 +142,6 @@ the proposal came from."
 
 ;;; Editing
 
-(defun mailx-review--check-folder (folder)
-  "Signal a `user-error' unless FOLDER is a plausible Maildir folder."
-  (unless (and (stringp folder)
-               (not (string-empty-p folder))
-               (not (member ".." (split-string folder "/" t)))
-               (not (string-match-p "[\0-\37\177]" folder)))
-    (user-error "Invalid folder: %S" folder)))
-
 (defun mailx-review--check-editable (entries)
   "Signal a `user-error' if any of ENTRIES is already in a plan."
   (when (seq-some (lambda (entry) (eq (map-elt entry :status) 'planned)) entries)
@@ -161,7 +153,7 @@ PROP is :tier, :folder or :tags.  An edited accepted entry returns to
 pending so every accepted entry matches what was reviewed."
   (mailx-review--check-editable entries)
   (pcase prop
-    (:folder (mailx-review--check-folder value))
+    (:folder (mailx-bulk-check-folder value))
     (:tier (unless (memq value mailx-attention-tiers)
              (user-error "Unknown attention tier: %S" value)))
     (:tags (mailx--validated-classification
@@ -307,6 +299,10 @@ whole domain, so the confirmation shows how many messages it would catch."
     (when (seq-some (lambda (other) (eq (mailx-rule-id other) (mailx-rule-id rule)))
                     existing)
       (user-error "Rule ID already exists: %s" (mailx-rule-id rule)))
+    (condition-case err
+        (mailx--validate-rule rule)
+      (error (user-error "Cannot save rule %s: %s" (mailx-rule-id rule)
+                         (error-message-string err))))
     (let ((preview (mailx-test-rule root rule)))
       (when (yes-or-no-p
              (format "Rule %s matches %d messages%s; save? "

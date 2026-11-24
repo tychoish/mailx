@@ -189,6 +189,27 @@
         (should-error (mailx-review-promote-entry (car mailx-review--entries) "/tmp/mail/")
                       :type 'user-error)))))
 
+(ert-deftest mailx-review-folder-check-matches-rule-validation ()
+  (test-mailx-review--with-buffer
+    (let ((entry (car mailx-review--entries)))
+      (should-error (mailx-review-edit (list entry) :folder "archive") :type 'user-error)
+      (mailx-review-edit (list entry) :folder "/archive")
+      (should (equal (map-elt entry :folder) "/archive")))))
+
+(ert-deftest mailx-review-promote-invalid-folder-is-a-readable-error ()
+  (test-mailx-review--with-buffer
+    (let ((entry (car mailx-review--entries)))
+      (map-put! entry :folder "archive")
+      (cl-letf (((symbol-function 'mailx-rules-load) (lambda (&rest _) nil))
+                ((symbol-function 'mailx-test-rule) (lambda (&rest _) '(:count 1 :subjects nil)))
+                ((symbol-function 'yes-or-no-p) (lambda (&rest _) (error "must not prompt")))
+                ((symbol-function 'mailx-rules-save)
+                 (lambda (&rest _) (error "must not save"))))
+        (let ((err (should-error (mailx-review-promote-entry entry "/tmp/mail/")
+                                 :type 'user-error)))
+          (should-not (string-match-p "#s(" (error-message-string err)))
+          (should (string-match-p "prop-a" (error-message-string err))))))))
+
 (ert-deftest mailx-review-revert-confirms-before-discarding-decisions ()
   (test-mailx-review--with-buffer
     (mailx-review-mark (list (car mailx-review--entries)) 'accepted)
