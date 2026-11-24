@@ -175,15 +175,18 @@
   "Return first of RULES matching MSG, or nil."
   (seq-find (lambda (rule) (mailx-eval-condition (mailx-rule-match rule) msg)) rules))
 
-(defun mailx--mu-find-output (root query)
-  "Return mu sexp output for QUERY under ROOT, rejecting query errors."
+(defun mailx--mu-find-output (root query &optional limit)
+  "Return mu sexp output for QUERY under ROOT, rejecting query errors.
+LIMIT, when non-nil, caps the number of results."
   (let ((stderr-file (make-temp-file "mailx-mu-stderr-"))
         (process-environment (cons "LC_ALL=C" process-environment)))
     (unwind-protect
         (with-temp-buffer
-          (let* ((status (process-file "mu" nil (list (current-buffer) stderr-file) nil
-                                       "find" "--muhome" (expand-file-name ".mu" root)
-                                       "--format=sexp" query))
+          (let* ((status (apply #'process-file "mu" nil (list (current-buffer) stderr-file) nil
+                                "find" "--muhome" (expand-file-name ".mu" root)
+                                "--format=sexp"
+                                (append (when limit (list (format "--maxnum=%d" limit)))
+                                        (list query))))
                  (output (buffer-string))
                  (diagnostic (with-temp-buffer
                                (insert-file-contents stderr-file)

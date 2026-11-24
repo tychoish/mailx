@@ -87,6 +87,16 @@
                2)))
     (should-error (mailx--mu-find-output "/tmp" "query"))))
 
+(ert-deftest mailx-mu-find-passes-limit-as-separate-argument ()
+  (let ((captured nil))
+    (cl-letf (((symbol-function 'process-file)
+               (lambda (_program _infile _destination _display &rest args)
+                 (setq captured args)
+                 0)))
+      (mailx--mu-find-output "/tmp" "flag:unread" 5))
+    (should (member "--maxnum=5" captured))
+    (should (equal (car (last captured)) "flag:unread"))))
+
 (ert-deftest mailx-rules-refile-skips-tag-only-rule ()
   (require 'mailx)
   (let ((message-directory "/tmp")

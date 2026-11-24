@@ -278,7 +278,7 @@ stored path alone: Maildir files can be renamed or replaced after staging."
       (user-error "No messages found in current view"))
     (setq targets (nreverse targets))
     (let ((plan (hitl-plan-create :domain 'mailx
-                                  :title (or title "mailx-triage")
+                                  :description (or title "mailx-triage")
                                   :targets targets)))
       (hitl-plan-review plan))))
 
@@ -301,7 +301,7 @@ stored path alone: Maildir files can be renamed or replaced after staging."
         (forward-line 1)))
     (when targets
       (let ((plan (hitl-plan-create :domain 'mailx
-                                    :title "mailx-mark-read"
+                                    :description "mailx-mark-read"
                                     :targets (nreverse targets)
                                     :ops '((mark-read)))))
         (hitl-plan-review plan)))))

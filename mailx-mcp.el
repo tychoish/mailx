@@ -146,7 +146,7 @@
                                    :path (map-elt item :path)))
                            items))
          (plan (hitl-plan-create :domain 'mailx
-                                 :title (or title "mcp-mailx-triage")
+                                 :description (or title "mcp-mailx-triage")
                                  :targets targets)))
     (list :status "ok" :plan_id (format "%s" plan))))
 

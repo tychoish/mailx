@@ -46,10 +46,11 @@
     (mailx--sender-addresses (cdr value)))
    ((listp value) (seq-mapcat #'mailx--sender-addresses value))))
 
-(defun mailx--mu-find (root query)
-  "Return mu message plists matching QUERY in ROOT's database."
+(defun mailx--mu-find (root query &optional limit)
+  "Return mu message plists matching QUERY in ROOT's database.
+LIMIT, when non-nil, caps the number of results."
   (with-temp-buffer
-    (insert (mailx--mu-find-output root query))
+    (insert (mailx--mu-find-output root query limit))
     (let ((messages nil))
       (goto-char (point-min))
       (while (progn (skip-chars-forward " \t\r\n") (not (eobp)))
@@ -436,7 +437,7 @@ Return a summary plist (:processed N :classified M :moved K :results LIST)."
          (query (or (map-elt options :query)
                     "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"))
          (rules (mailx-rules-load root))
-         (messages (mailx--mu-find root (format "%s --maxnum=%d" query limit)))
+         (messages (mailx--mu-find root query limit))
          (processed 0)
          (classified 0)
          (moved 0)
