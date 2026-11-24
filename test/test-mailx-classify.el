@@ -231,5 +231,46 @@
                                       (cdr (car (map-elt res :errors))))))))
       (delete-directory root t))))
 
+(ert-deftest mailx-classify-batch-refreshes-stale-correspondents ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (mailx-sent-query "from:me")
+         (refreshed nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) nil))
+                  ((symbol-function 'mailx-refresh-correspondents)
+                   (lambda (_root query) (setq refreshed query) nil)))
+          (let ((res (mailx-classify-batch root '(:dry-run t))))
+            (should (equal refreshed "from:me"))
+            (should (eq (map-elt res :correspondents) 'refreshed)))
+          ;; A fresh cache is left alone.
+          (setq refreshed nil)
+          (let ((file (expand-file-name mailx-correspondents-filename root)))
+            (make-directory (file-name-directory file) t)
+            (write-region "nil\n" nil file nil 'silent))
+          (let ((res (mailx-classify-batch root '(:dry-run t))))
+            (should-not refreshed)
+            (should (eq (map-elt res :correspondents) 'fresh))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-classify-batch-notes-skipped-correspondent-refresh ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (mailx-sent-query nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) nil)))
+          (should (eq (map-elt (mailx-classify-batch root '(:dry-run t)) :correspondents)
+                      'skipped-no-sent-query)))
+      (delete-directory root t))))
+
+(ert-deftest mailx-classify-batch-reports-correspondent-refresh-failure ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (mailx-sent-query "from:me"))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) nil))
+                  ((symbol-function 'mailx-refresh-correspondents)
+                   (lambda (&rest _) (error "mu exploded"))))
+          (should (equal (map-elt (mailx-classify-batch root '(:dry-run t)) :correspondents)
+                         '(error . "mu exploded"))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here

@@ -32,6 +32,19 @@
   :type 'string
   :group 'mailx-classify)
 
+(defcustom mailx-sent-query nil
+  "Mu query selecting messages sent by the user, or nil if unknown.
+Used by `mailx-classify-batch' to refresh the correspondent cache and to
+promote thread parents to reply.  mu has no portable sent flag, so there
+is deliberately no default."
+  :type '(choice (const :tag "Unset" nil) string)
+  :group 'mailx-classify)
+
+(defcustom mailx-correspondents-max-age-days 7
+  "Days before `mailx-classify-batch' refreshes the correspondent cache."
+  :type 'number
+  :group 'mailx-classify)
+
 (defun mailx--sender-addresses (value)
   "Extract sender addresses from VALUE without using display names."
   (cond
@@ -86,6 +99,24 @@ portable sent flag.  The caller controls that definition for each root."
             (rename-file temp file t))
         (when (file-exists-p temp) (delete-file temp))))
     addresses))
+
+(defun mailx--refresh-correspondents-if-stale (root sent-query)
+  "Refresh ROOT's correspondent cache from SENT-QUERY when missing or stale.
+Return `fresh', `refreshed', `skipped-no-sent-query' or (error . MESSAGE)."
+  (let* ((file (expand-file-name mailx-correspondents-filename root))
+         (age (when (file-exists-p file)
+                (/ (float-time (time-subtract (current-time)
+                                              (file-attribute-modification-time
+                                               (file-attributes file))))
+                   86400.0))))
+    (cond
+     ((and age (< age mailx-correspondents-max-age-days)) 'fresh)
+     ((not (and (stringp sent-query) (not (string-empty-p (string-trim sent-query)))))
+      (if age 'fresh 'skipped-no-sent-query))
+     (t
+      (condition-case err
+          (progn (mailx-refresh-correspondents root sent-query) 'refreshed)
+        (error (cons 'error (error-message-string err))))))))
 
 (defun mailx-load-correspondents (root)
   "Read and validate the correspondent cache under ROOT."
@@ -430,13 +461,17 @@ OPTIONS is an optional plist supporting:
   :coordination - must be `exclusive-access' to perform mutations
   :update-index - if non-nil, run mu index --lazy-check after moving files
 Return a summary plist (:processed N :classified M :moved K :errors LIST
-:results LIST), where :errors holds (PATH . MESSAGE) for each failed move."
+:correspondents STATUS :results LIST), where :errors holds (PATH . MESSAGE)
+for each failed move and :correspondents reports the cache refresh outcome.
+The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
   (let* ((root (file-name-as-directory (file-truename root)))
          (dry-run (map-elt options :dry-run))
          (coordination (map-elt options :coordination))
          (limit (or (map-elt options :limit) 100))
          (query (or (map-elt options :query)
                     "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"))
+         (sent-query (or (map-elt options :sent-query) mailx-sent-query))
+         (correspondents (mailx--refresh-correspondents-if-stale root sent-query))
          (rules (mailx-rules-load root))
          (messages (mailx--mu-find root query limit))
          (processed 0)
@@ -451,7 +486,7 @@ Return a summary plist (:processed N :classified M :moved K :errors LIST
          (mailx-classify-message
           msg rules
           (lambda (classification) (setq res classification))
-          (list :root root :sent-query (map-elt options :sent-query)))
+          (list :root root :sent-query sent-query))
          (when res
            (setq classified (1+ classified))
            (let ((path (map-elt msg :path))
@@ -473,7 +508,8 @@ Return a summary plist (:processed N :classified M :moved K :errors LIST
                     (concat "--muhome=" (expand-file-name ".mu" root))
                     "--lazy-check"))
     (list :processed processed :classified classified :moved moved
-          :errors (nreverse errors) :results (nreverse results))))
+          :errors (nreverse errors) :correspondents correspondents
+          :results (nreverse results))))
 
 (provide 'mailx-classify)
 ;;; mailx-classify.el ends here
