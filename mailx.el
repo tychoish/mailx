@@ -143,20 +143,6 @@ YEARS defaults to `mailx-compose-complete-years'."
     (:list . string))
   "Alist of mu4e message fields available for refile rule generation.")
 
-(defvaralias 'mailx--refile-rules 'mailx-refile-rules
-  "Alias for `mailx-refile-rules'.")
-
-;;;###autoload
-(defcustom mailx-refile-rules nil
-  "Functions of one argument MSG, tried in order by `mailx-refile-folder'.
-Obsolete: declarative rules (see `mailx-generate-refile-rule') replace these
-closures.  Scheduled for removal after 2027-06-01."
-  :type '(repeat function)
-  :group 'mailx)
-
-(make-obsolete-variable 'mailx-refile-rules "use declarative mailx rules instead" "0.2.0")
-(make-obsolete-variable 'mailx--refile-rules "use declarative mailx rules instead" "0.2.0")
-
 (defcustom mailx-global-managed-settings
   `((mail-specify-envelope-from . t)
     (mail-user-agent . mu4e-user-agent)
@@ -467,16 +453,6 @@ Ignores the message mu4e passes to actions."
   (add-hook 'message-send-hook #'mailx--guard-draft-identity nil t))
 
 ;;;###autoload
-(defun mailx-add-refile-rule (rule)
-  "Register RULE, a function of one argument MSG, as a refile rule.
-RULE should return a maildir folder string, or nil to fall through to the
-next registered rule.  Obsolete: use declarative rules; scheduled for
-removal after 2027-06-01."
-  (add-to-list 'mailx-refile-rules rule t))
-
-(make-obsolete 'mailx-add-refile-rule "use declarative mailx rules instead" "0.2.0")
-
-;;;###autoload
 (defun mailx-refile-folder (msg)
   "Return refile folder for MSG by trying each registered rule."
   (or (when-let* ((root (and (boundp 'message-directory) message-directory))
@@ -486,7 +462,6 @@ removal after 2027-06-01."
                                           (mailx-rule-match candidate) msg)))
                                   (mailx-rules-load root))))
         (mailx-rule-folder rule))
-      (seq-some (lambda (rule) (funcall rule msg)) mailx-refile-rules)
       mailx-archive-folder))
 
 (defun mailx--field-display-value (msg field)

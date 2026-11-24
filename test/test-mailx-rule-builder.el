@@ -76,10 +76,11 @@
       (mailx-generate-refile-rule '(:subject "Report"))
       (should (equal saved "/tmp/mailx-resolved")))))
 
-(ert-deftest mailx-rule-builder/closure-refile-rules-are-obsolete ()
-  (should (get 'mailx-refile-rules 'byte-obsolete-variable))
-  (should (get 'mailx--refile-rules 'byte-obsolete-variable))
-  (should (get 'mailx-add-refile-rule 'byte-obsolete-info)))
+(ert-deftest mailx-rule-builder/closure-refile-rules-are-removed ()
+  (require 'mailx)
+  (should-not (boundp 'mailx-refile-rules))
+  (should-not (boundp 'mailx--refile-rules))
+  (should-not (fboundp 'mailx-add-refile-rule)))
 
 (provide 'test-mailx-rule-builder)
 ;;; test-mailx-rule-builder.el ends here

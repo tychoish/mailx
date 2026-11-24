@@ -126,7 +126,7 @@ Initialize ~mailx~ in your Emacs configuration with `mailx-global-mode`:
 :CUSTOM_ID: workflow-refile-rules
 :END:
 
-While viewing or navigating headers in mu4e, invoke ~M-x mailx-generate-refile-rule~.  You will be prompted to select a message field, specify a regular expression, choose a destination folder, and assign an attention tier.  Before saving, a live preview matches against the active database and reports matching counts.  The closure-based ~mailx-refile-rules~ and ~mailx-add-refile-rule~ are obsolete (removal after 2027-06-01); use declarative rules.
+While viewing or navigating headers in mu4e, invoke ~M-x mailx-generate-refile-rule~.  You will be prompted to select a message field, specify a regular expression, choose a destination folder, and assign an attention tier.  Before saving, a live preview matches against the active database and reports matching counts. 
 
 ** Attention Tier Navigation
 :PROPERTIES:
