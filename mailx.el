@@ -148,9 +148,14 @@ YEARS defaults to `mailx-compose-complete-years'."
 
 ;;;###autoload
 (defcustom mailx-refile-rules nil
-  "Functions of one argument MSG, tried in order by `mailx-refile-folder'."
+  "Functions of one argument MSG, tried in order by `mailx-refile-folder'.
+Obsolete: declarative rules (see `mailx-generate-refile-rule') replace these
+closures.  Scheduled for removal after 2027-06-01."
   :type '(repeat function)
   :group 'mailx)
+
+(make-obsolete-variable 'mailx-refile-rules "use declarative mailx rules instead" "0.2.0")
+(make-obsolete-variable 'mailx--refile-rules "use declarative mailx rules instead" "0.2.0")
 
 (defcustom mailx-global-managed-settings
   `((mail-specify-envelope-from . t)
@@ -463,8 +468,11 @@ Ignores the message mu4e passes to actions."
 (defun mailx-add-refile-rule (rule)
   "Register RULE, a function of one argument MSG, as a refile rule.
 RULE should return a maildir folder string, or nil to fall through to the
-next registered rule."
+next registered rule.  Obsolete: use declarative rules; scheduled for
+removal after 2027-06-01."
   (add-to-list 'mailx-refile-rules rule t))
+
+(make-obsolete 'mailx-add-refile-rule "use declarative mailx rules instead" "0.2.0")
 
 ;;;###autoload
 (defun mailx-refile-folder (msg)
@@ -500,8 +508,7 @@ Preview matching messages before confirming persistence in the current maildir."
   (interactive)
   (let* ((msg (or msg (mu4e-message-at-point)
                   (user-error "No message at point")))
-         (root (or (and (boundp 'message-directory) message-directory)
-                   (user-error "No current mail directory")))
+         (root (mailx-current-maildir))
          (candidates
           (seq-map (lambda (entry)
                      (cons (symbol-name (car entry))
