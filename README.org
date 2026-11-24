@@ -111,7 +111,8 @@ Initialize ~mailx~ in your Emacs configuration with `mailx-global-mode`:
 | ~mailx-classify.el~ | 3-stage classifier, correspondent cache, and Maildir atomic stamping. |
 | ~mailx-views.el~ | Five-tier attention bookmarks, header tier column, and jump command. |
 | ~mailx-bulk.el~ | HITL triage plan domain registration, batch refile, and sender blocking. |
-| ~mailx-org.el~ | ~mailx:~ link type, task capture hook, and asynchronous background sync. |
+| ~mailx-org.el~ | ~mailx:~ link type and task capture hook. |
+| ~mailx-review.el~ | Review buffer for proposed classifications: edit, accept, promote to a rule, apply via a plan. |
 | ~mailx-mcp.el~ | MCP inspection tools with canonical root allowlists. |
 | ~mailx-server.el~ | Multi-database Mu server process lifecycle and draft database guards. |
 
@@ -146,6 +147,27 @@ Invoke ~M-x mailx-jump-to-tier~ to choose from the five tiers.  Each option disp
 
 From a headers buffer, run ~M-x mailx-bulk-stage-current-view~ to snapshot the visible messages into a reviewable plan.  Inside the review interface, queue actions (~r~ for mark read, ~m~ for refile, ~b~ to block sender and trash) before committing them atomically.
 
+** Reviewing Proposed Classifications
+:PROPERTIES:
+:CUSTOM_ID: workflow-review
+:END:
+
+Run ~M-x mailx-review~ to classify unclassified mail without changing it.  Each proposal appears in a table with its tier, folder, tags and source (a named rule, a heuristic, or ~none~ when no stage could classify the message).  Nothing is moved from this buffer.
+
+| Key | Action |
+|---|---|
+| ~a~ / ~s~ | Accept / skip the entry at point (or every entry in the region) and move on. |
+| ~*~ | Accept every pending entry that already has a tier and folder. |
+| ~t~ / ~f~ / ~l~ | Set the tier, folder or tags of the entry at point (or region). |
+| ~r~ | Save a rule reproducing the entry.  The match covers the sender's whole domain; the preview count is shown before you confirm. |
+| ~x~ | Turn accepted entries into a ~mailx~ hitl plan and open it for review. |
+| ~v~ | View the raw message file. |
+| ~g~ | Reclassify (asks first if that would discard decisions). |
+
+Exclusive Maildir access is asserted only when the hitl plan is applied, so stop mail delivery and sync clients before applying it.
+
+Set ~mailx-sent-query~ to a mu query matching mail you sent.  Batch classification then keeps the correspondent cache fresh (see ~mailx-correspondents-max-age-days~) so mail from people you write to is proposed as ~reply~.  Without it, the cache is not refreshed and the batch summary reports ~skipped-no-sent-query~.
+
 * API Reference
 :PROPERTIES:
 :CUSTOM_ID: api-reference
@@ -160,6 +182,9 @@ From a headers buffer, run ~M-x mailx-bulk-stage-current-view~ to snapshot the v
 | ~mailx-generate-refile-rule~ | Interactive rule creator with live query preview. |
 | ~mailx-jump-to-tier~ | Annotated prompt to jump to attention tiers with unread counts. |
 | ~mailx-bulk-stage-current-view~ | Stage visible messages into a Human-in-the-Loop triage plan. |
+| ~mailx-review~ | Review, edit and apply proposed classifications. |
+| ~mailx-classify-batch~ | Classify unclassified mail; returns a summary with ~:errors~, ~:unresolved~ and ~:correspondents~. |
+| ~mailx-sent-query~ | Mu query for sent mail, used to refresh the correspondent cache. |
 | ~mailx-capture-task~ | Capture an Org task and automatically refile upon completion. |
 | ~mailx-mcp-register~ | Register MCP service and inspection tools. |
 
