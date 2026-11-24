@@ -140,9 +140,10 @@ KEY is the optional `org-capture' template key."
                       (require 'mailx)
                       (let* ((folder (mailx-refile-folder captured-msg))
                              (root (mailx-current-maildir)))
-                        (condition-case nil
+                        (condition-case err
                             (mailx-stamp-and-move captured-path root folder 'read nil 'exclusive-access)
-                          (error nil))))))))
+                          (error (message "mailx: could not refile captured message: %s"
+                                          (error-message-string err))))))))))
         (add-hook 'org-capture-after-finalize-hook finalize-hook)
         (org-capture nil (or key mailx-org-capture-template-key))))))
 
