@@ -78,6 +78,58 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
     (should (string-match-p "first 2" (string-join (caddr state) "\n"))))
   (should-not (car (test-mailx-review--load-with '(:truncated nil)))))
 
+(defmacro test-mailx-review--with-fake-mu4e (&rest body)
+  "Run BODY as if mu4e were loaded, with empty action lists and no view setup."
+  (declare (indent 0))
+  `(let ((mu4e-headers-actions (list '("other" . ignore)))
+         (mu4e-view-actions (list '("another" . ignore)))
+         (mailx-global--mu4e-active nil))
+     (cl-letf (((symbol-function 'featurep) (lambda (feature &rest _) (eq feature 'mu4e)))
+               ((symbol-function 'mailx-views-setup) #'ignore)
+               ((symbol-function 'mailx-views-teardown) #'ignore))
+       ,@body)))
+
+(defvar mu4e-headers-actions)
+(defvar mu4e-view-actions)
+
+(ert-deftest mailx-review-mu4e-actions-are-added-and-removed-idempotently ()
+  (test-mailx-review--with-fake-mu4e
+    (seq-do (lambda (_)
+              (mailx-global--enable-mu4e)
+              (should (rassq 'mailx-review-from-mu4e mu4e-headers-actions))
+              (should (rassq 'mailx-bulk-stage-from-mu4e mu4e-headers-actions))
+              (should (rassq 'mailx-review-from-mu4e mu4e-view-actions))
+              (mailx-global--disable-mu4e)
+              (should-not (rassq 'mailx-review-from-mu4e mu4e-headers-actions))
+              (should-not (rassq 'mailx-bulk-stage-from-mu4e mu4e-headers-actions))
+              (should-not (rassq 'mailx-review-from-mu4e mu4e-view-actions))
+              (should (equal mu4e-headers-actions '(("other" . ignore))))
+              (should (equal mu4e-view-actions '(("another" . ignore)))))
+            '(1 2))))
+
+(ert-deftest mailx-review-mu4e-action-names-have-distinct-keys ()
+  (let ((keys (seq-map (lambda (action) (aref (car action) 0))
+                       (append mailx--mu4e-headers-actions))))
+    (should (= (length keys) (length (delete-dups (copy-sequence keys))))))
+  (let ((keys (seq-map (lambda (action) (aref (car action) 0)) mailx--mu4e-view-actions)))
+    (should (= (length keys) (length (delete-dups (copy-sequence keys)))))))
+
+(ert-deftest mailx-review-mu4e-wrappers-ignore-the-message-argument ()
+  (let ((args 'unset)
+        (title 'unset))
+    (cl-letf (((symbol-function 'mailx-review) (lambda (&rest a) (setq args a)))
+              ((symbol-function 'mailx-bulk-stage-current-view)
+               (lambda (&rest a) (setq title a))))
+      (mailx-review-from-mu4e '(:subject "msg"))
+      (mailx-bulk-stage-from-mu4e '(:subject "msg")))
+    (should-not args)
+    (should-not title)))
+
+(ert-deftest mailx-review-mode-documents-its-keys ()
+  (should (string-match-p "mailx-review-accept"
+                          (substitute-command-keys (documentation 'mailx-review-mode t))))
+  (should (eq (lookup-key mailx-review-mode-map "?") 'describe-mode)))
+
 (ert-deftest mailx-review-load-lists-proposals-and-unresolved ()
   (test-mailx-review--with-buffer
     (should (= (length mailx-review--entries) 2))

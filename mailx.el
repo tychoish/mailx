@@ -42,6 +42,8 @@
 (declare-function mu4e-contact-email "mu4e-contacts")
 (declare-function mu4e-contact-name "mu4e-contacts")
 
+(declare-function mailx-review "mailx-review")
+(declare-function mailx-bulk-stage-current-view "mailx-bulk")
 (declare-function mailx-org-setup "mailx-org")
 (declare-function mailx-org-teardown "mailx-org")
 (declare-function cmdr-frame-record-home-frame "cmdr-frame")
@@ -263,12 +265,32 @@ YEARS defaults to `mailx-compose-complete-years'."
   (setq display-buffer-alist
         (delete mailx--display-buffer-entry display-buffer-alist)))
 
+;; mu4e calls actions with the message plist, which the commands behind these
+;; wrappers must not receive as their ROOT or TITLE argument.
+
+;;;###autoload
+(defun mailx-review-from-mu4e (&optional _message)
+  "Review proposed classifications for the active maildir.
+Ignores the message mu4e passes to actions."
+  (interactive)
+  (mailx-review))
+
+;;;###autoload
+(defun mailx-bulk-stage-from-mu4e (&optional _message)
+  "Stage the messages in the current mu4e headers view as a hitl plan.
+Ignores the message mu4e passes to actions."
+  (interactive)
+  (mailx-bulk-stage-current-view))
+
 (defconst mailx--mu4e-headers-actions
-  '(("generate refile rule" . mailx-generate-refile-rule)))
+  '(("generate refile rule" . mailx-generate-refile-rule)
+    ("review classifications" . mailx-review-from-mu4e)
+    ("stage view as plan" . mailx-bulk-stage-from-mu4e)))
 
 (defconst mailx--mu4e-view-actions
   '(("unsubscribe" . mailx-unsubscribe)
-    ("generate refile rule" . mailx-generate-refile-rule)))
+    ("generate refile rule" . mailx-generate-refile-rule)
+    ("review classifications" . mailx-review-from-mu4e)))
 
 (defvar mailx-global--mu4e-active nil)
 

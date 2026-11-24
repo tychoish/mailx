@@ -152,7 +152,7 @@ From a headers buffer, run ~M-x mailx-bulk-stage-current-view~ to snapshot the v
 :CUSTOM_ID: workflow-review
 :END:
 
-Run ~M-x mailx-review~ to classify unclassified mail without changing it.  Each proposal appears in a table with its tier, folder, tags and source (a named rule, a heuristic, or ~none~ when no stage could classify the message).  Nothing is moved from this buffer.
+Run ~M-x mailx-review~, or pick /review classifications/ from the mu4e actions menu (~a~ in a headers or message view), to classify unclassified mail without changing it.  From a headers buffer, /stage view as plan/ in the same menu runs ~mailx-bulk-stage-current-view~.  Press ~?~ in the review buffer for its keys.  Each proposal appears in a table with its tier, folder, tags and source (a named rule, a heuristic, or ~none~ when no stage could classify the message).  Nothing is moved from this buffer.
 
 | Key | Action |
 |---|---|
@@ -166,7 +166,7 @@ Run ~M-x mailx-review~ to classify unclassified mail without changing it.  Each 
 
 Exclusive Maildir access is asserted only when the hitl plan is applied, so stop mail delivery and sync clients before applying it.
 
-Set ~mailx-sent-query~ to a mu query matching mail you sent.  Batch classification then keeps the correspondent cache fresh (see ~mailx-correspondents-max-age-days~) so mail from people you write to is proposed as ~reply~.  Without it, the cache is not refreshed and the batch summary reports ~skipped-no-sent-query~.
+Set ~mailx-sent-query~ to a mu query matching mail you sent.  Batch classification then keeps the correspondent cache fresh (see ~mailx-correspondents-max-age-days~) so mail from people you write to is proposed as ~reply~.  Without it, the cache is not refreshed and the review mode line shows ~[no sent query]~ and a message names the variable; a failed refresh shows ~[correspondents failed]~ with the error.  When the batch hit ~mailx-review-limit~ the mode line shows ~[first N]~: more messages may remain, so raise the limit or press ~g~ after applying.  Oldest mail comes first, since ~mu find~ sorts by date ascending unless told otherwise.
 
 ** Classification Rules
 :PROPERTIES:
