@@ -272,5 +272,19 @@
                          '(error . "mu exploded"))))
       (delete-directory root t))))
 
+(ert-deftest mailx-classify-batch-returns-messages-and-unresolved ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (rule (make-mailx-rule :id 'r1 :match '(:subject "hi") :folder "/archive" :tier 'read))
+         (hit '(:subject "hi" :path "/fake/a" :maildir "/inbox"))
+         (miss '(:subject "other" :path "/fake/b" :maildir "/inbox")))
+    (unwind-protect
+        (progn
+          (mailx-rules-save root (list rule))
+          (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) (list hit miss))))
+            (let ((res (mailx-classify-batch root '(:dry-run t))))
+              (should (equal (map-elt (car (map-elt res :results)) :message) hit))
+              (should (equal (map-elt res :unresolved) (list miss))))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here

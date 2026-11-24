@@ -461,8 +461,9 @@ OPTIONS is an optional plist supporting:
   :coordination - must be `exclusive-access' to perform mutations
   :update-index - if non-nil, run mu index --lazy-check after moving files
 Return a summary plist (:processed N :classified M :moved K :errors LIST
-:correspondents STATUS :results LIST), where :errors holds (PATH . MESSAGE)
-for each failed move and :correspondents reports the cache refresh outcome.
+:correspondents STATUS :unresolved MESSAGES :results LIST).  :errors holds
+\(PATH . MESSAGE) for each failed move, :unresolved the messages no stage
+classified, and :correspondents the cache refresh outcome.
 The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
   (let* ((root (file-name-as-directory (file-truename root)))
          (dry-run (map-elt options :dry-run))
@@ -478,6 +479,7 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
          (classified 0)
          (moved 0)
          (errors nil)
+         (unresolved nil)
          (results nil))
     (seq-do
      (lambda (msg)
@@ -487,13 +489,15 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
           msg rules
           (lambda (classification) (setq res classification))
           (list :root root :sent-query sent-query))
+         (unless res (push msg unresolved))
          (when res
            (setq classified (1+ classified))
            (let ((path (map-elt msg :path))
                  (folder (or (map-elt res :folder) (map-elt msg :maildir)))
                  (tier (map-elt res :tier))
                  (tags (map-elt res :tags)))
-             (push (list :path path :folder folder :tier tier :tags tags :classification res)
+             (push (list :path path :folder folder :tier tier :tags tags
+                         :classification res :message msg)
                    results)
              (when (and (not dry-run) folder tier path (file-exists-p path))
                (condition-case err
@@ -509,6 +513,7 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
                     "--lazy-check"))
     (list :processed processed :classified classified :moved moved
           :errors (nreverse errors) :correspondents correspondents
+          :unresolved (nreverse unresolved)
           :results (nreverse results))))
 
 (provide 'mailx-classify)
