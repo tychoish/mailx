@@ -364,6 +364,53 @@ Without :gptel-backend an unresolved result is nil.  No message is changed."
       (insert "X-Label: " (mapconcat #'identity labels " ") newline))
     (set-marker header-end nil)))
 
+(defun mailx--check-tier-and-tags (tier tags)
+  "Signal an error unless TIER is a known tier and TAGS are valid tag strings."
+  (unless (and (memq tier mailx-attention-tiers)
+               (seq-every-p (lambda (tag)
+                              (and (stringp tag)
+                                   (string-match-p "\\`[^[:space:][:cntrl:],]+\\'" tag)
+                                   (not (string-prefix-p "tier:" tag)))) tags))
+    (error "Invalid tier or tags")))
+
+;;;###autoload
+(defun mailx-stamp-in-place (path tier &optional tags)
+  "Stamp TIER and TAGS on the message at PATH without moving it.
+The stamped copy is written to a hidden temporary file in the same
+directory (mu ignores dotfiles) and renamed over PATH, so readers see
+either the old or the new message.  Refuse symlinks and a message that
+changed while it was being read.  Return PATH.  This keeps the base name
+and flags, so a running mu4e server can re-index it with `mu4e--server-add'."
+  (mailx--check-tier-and-tags tier tags)
+  (unless (and (file-regular-p path) (not (file-symlink-p path)))
+    (error "Not a regular Maildir message: %s" path))
+  (let* ((attrs (file-attributes path 'integer))
+         (temp (make-temp-file (expand-file-name ".mailx-" (file-name-directory path)))))
+    (unwind-protect
+        (progn
+          (with-temp-buffer
+            (set-buffer-multibyte nil)
+            (let ((coding-system-for-read 'no-conversion)
+                  (coding-system-for-write 'no-conversion))
+              (insert-file-contents-literally path)
+              (mailx--stamp-buffer tier tags)
+              (write-region (point-min) (point-max) temp nil 'silent)))
+          (set-file-modes temp (file-modes path))
+          (set-file-times temp (file-attribute-modification-time attrs))
+          (let ((current (file-attributes path 'integer)))
+            (unless (and current
+                         (equal (file-attribute-inode-number attrs)
+                                (file-attribute-inode-number current))
+                         (equal (file-attribute-size attrs)
+                                (file-attribute-size current))
+                         (equal (file-attribute-modification-time attrs)
+                                (file-attribute-modification-time current)))
+              (error "Message changed during stamping")))
+          (rename-file temp path t)
+          path)
+      (when (file-exists-p temp)
+        (delete-file temp)))))
+
 ;;;###autoload
 (defun mailx-stamp-and-move (path root target-folder tier &optional tags coordination)
   "Stamp TIER and TAGS on PATH and move it under ROOT to TARGET-FOLDER.
@@ -376,12 +423,7 @@ caller has independently stopped every process that can access the source
 or destination.  This function cannot lock out delivery or sync clients."
   (unless (eq coordination 'exclusive-access)
     (error "Rewriting requires independently established exclusive access"))
-  (unless (and (memq tier mailx-attention-tiers)
-               (seq-every-p (lambda (tag)
-                              (and (stringp tag)
-                                   (string-match-p "\\`[^[:space:][:cntrl:],]+\\'" tag)
-                                   (not (string-prefix-p "tier:" tag)))) tags))
-    (error "Invalid tier or tags"))
+  (mailx--check-tier-and-tags tier tags)
   (unless (and (stringp target-folder)
                (not (member ".." (split-string target-folder "/" t)))
                (not (string-match-p "[\0-\37\177]" target-folder)))

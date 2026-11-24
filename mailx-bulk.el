@@ -40,7 +40,16 @@
   :type 'string
   :group 'mailx-bulk)
 
+(defcustom mailx-bulk-mu4e-timeout 5
+  "Seconds to wait for the mu4e server to apply a change to its database."
+  :type 'number
+  :group 'mailx-bulk)
+
 (declare-function mailx-current-maildir "mailx" ())
+(declare-function mu4e-running-p "mu4e-server" ())
+(declare-function mu4e-root-maildir "mu4e-helpers" ())
+(declare-function mu4e--server-move "mu4e-server" (docid-or-msgid &optional maildir flags no-view))
+(declare-function mu4e--server-add "mu4e-server" (path))
 (declare-function mailx-ensure-context "mailx-org" (name))
 (declare-function mailx-server-current-home "mailx-server" ())
 (declare-function mailx-rules-load "mailx-rules" (root &optional refresh))
@@ -51,6 +60,7 @@
 (declare-function mu4e-message-at-point "mu4e-message" (&optional no-error))
 
 (defvar hitl-plan-current-target)
+(defvar mu4e-change-filenames-when-moving)
 (defvar mailx-archive-folder)
 (defvar mailx-trash-folder)
 
@@ -112,28 +122,109 @@ stored path alone: Maildir files can be renamed or replaced after staging."
   "Return per-maildir plan storage directory."
   (expand-file-name mailx-plans-directory (mailx-current-maildir)))
 
+;;; mu4e backend
+;; When a mu4e server is running for the plan's root, changes go through the
+;; server so its database stays current and Maildir base names are kept.
+;; Otherwise the filesystem code below runs and asserts exclusive access.
+
+(defun mailx-bulk--mu4e-active-p (root)
+  "Return non-nil when a running mu4e server is serving ROOT."
+  (and (fboundp 'mu4e-running-p)
+       (fboundp 'mu4e-root-maildir)
+       (fboundp 'mailx-server-current-home)
+       (mu4e-running-p)
+       (when-let* ((home (mailx-server-current-home)))
+         (equal (file-truename home)
+                (file-truename (expand-file-name ".mu" root))))
+       (equal (file-truename (mu4e-root-maildir)) (file-truename root))))
+
+(defun mailx-bulk--mu4e-call (function &rest args)
+  "Call mu4e server FUNCTION with ARGS, or signal if mu4e is too old."
+  (unless (fboundp function)
+    (error "This mu4e does not provide %s; update mu4e or stop its server" function))
+  (apply function args))
+
+(defun mailx-bulk--mu4e-wait (root message-id predicate what)
+  "Wait until PREDICATE holds for MESSAGE-ID's mu record under ROOT.
+Poll the database for `mailx-bulk-mu4e-timeout' seconds, letting the mu4e
+server process run; signal an error mentioning WHAT on timeout."
+  (let ((deadline (+ (float-time) mailx-bulk-mu4e-timeout))
+        (query (mailx-bulk--msgid-query message-id))
+        (done nil))
+    (while (and (not done) (< (float-time) deadline))
+      (setq done (seq-some predicate (mailx--mu-find root query)))
+      (unless done
+        (accept-process-output (and (boundp 'mu4e--server-process)
+                                    (processp (symbol-value 'mu4e--server-process))
+                                    (symbol-value 'mu4e--server-process))
+                               0.1)))
+    (unless done
+      (error "mu4e did not confirm %s for %s within %ss"
+             what message-id mailx-bulk-mu4e-timeout))))
+
+(defun mailx-bulk--mu4e-folder (folder)
+  "Return FOLDER validated and with a leading slash, as mu4e expects."
+  (mailx-bulk-check-folder (if (string-prefix-p "/" folder) folder (concat "/" folder))))
+
+(defun mailx-bulk--mu4e-move (root resolved folder)
+  "Move RESOLVED under ROOT to FOLDER through mu4e, keeping its base name."
+  (let ((id (map-elt resolved :message-id))
+        (mu4e-change-filenames-when-moving nil))
+    (unless (equal folder (map-elt resolved :maildir))
+      (mailx-bulk--mu4e-call 'mu4e--server-move id folder nil t))
+    (mailx-bulk--mu4e-wait root id
+                           (lambda (message) (equal folder (map-elt message :maildir)))
+                           (format "move to %s" folder))))
+
+(defun mailx-bulk--mu4e-classify (root resolved tier tags folder)
+  "Stamp TIER and TAGS on RESOLVED under ROOT, then move it to FOLDER.
+Stamp in place, tell mu4e to re-read the file, move it if FOLDER differs,
+and wait until the database shows the new folder and tier tag."
+  (let* ((folder (mailx-bulk--mu4e-folder folder))
+         (path (map-elt resolved :path))
+         (id (map-elt resolved :message-id))
+         (tier-tag (concat "tier:" (symbol-name tier))))
+    (unless (and (fboundp 'mu4e--server-add) (fboundp 'mu4e--server-move))
+      (error "This mu4e lacks the server commands needed to apply changes"))
+    (mailx-stamp-in-place path tier tags)
+    (mailx-bulk--mu4e-call 'mu4e--server-add path)
+    (let ((mu4e-change-filenames-when-moving nil))
+      (unless (equal folder (map-elt resolved :maildir))
+        (mailx-bulk--mu4e-call 'mu4e--server-move id folder nil t)))
+    (mailx-bulk--mu4e-wait root id
+                           (lambda (message)
+                             (and (equal folder (map-elt message :maildir))
+                                  (member tier-tag (map-elt message :tags))))
+                           (format "tier %s in %s" tier folder))))
+
 (defun mailx-bulk--mark-read-apply ()
   "Apply mark-read to the current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (resolved (mailx-bulk--resolve-target target))
               (path (map-elt resolved :path))
               ((file-exists-p path)))
-    (let* ((dir (file-name-directory path))
-           (parent (file-name-nondirectory (directory-file-name dir)))
-           (grandparent (file-name-directory (directory-file-name dir)))
-           (base (file-name-nondirectory path)))
-      (cond
-       ((string-match "\\(:2,[A-Za-z]*\\)\\'" base)
-        (let ((flags (match-string 1 base)))
-          (unless (string-match-p "S" flags)
-            (let ((new-path (expand-file-name (concat (substring base 0 (match-beginning 1))
-                                                      flags "S") dir)))
-              (rename-file path new-path t)))))
-       ((equal parent "new")
-        (let* ((cur-dir (expand-file-name "cur" grandparent))
-               (new-path (expand-file-name (concat base ":2,S") cur-dir)))
-          (make-directory cur-dir t)
-          (rename-file path new-path t)))))))
+    (if (mailx-bulk--mu4e-active-p (map-elt target :root))
+        (let ((mu4e-change-filenames-when-moving nil))
+          (mailx-bulk--mu4e-call 'mu4e--server-move (map-elt resolved :message-id) nil "+S-N")
+          (mailx-bulk--mu4e-wait (map-elt target :root) (map-elt resolved :message-id)
+                                 (lambda (message) (memq 'seen (map-elt message :flags)))
+                                 "mark read"))
+      (let* ((dir (file-name-directory path))
+             (parent (file-name-nondirectory (directory-file-name dir)))
+             (grandparent (file-name-directory (directory-file-name dir)))
+             (base (file-name-nondirectory path)))
+        (cond
+         ((string-match "\\(:2,[A-Za-z]*\\)\\'" base)
+          (let ((flags (match-string 1 base)))
+            (unless (string-match-p "S" flags)
+              (let ((new-path (expand-file-name (concat (substring base 0 (match-beginning 1))
+                                                        flags "S") dir)))
+                (rename-file path new-path t)))))
+         ((equal parent "new")
+          (let* ((cur-dir (expand-file-name "cur" grandparent))
+                 (new-path (expand-file-name (concat base ":2,S") cur-dir)))
+            (make-directory cur-dir t)
+            (rename-file path new-path t))))))))
 
 (defun mailx-bulk-check-folder (folder)
   "Return FOLDER if it is a safe Maildir folder name, else signal `user-error'.
@@ -159,10 +250,12 @@ Never overwrites an existing destination file."
               (resolved (mailx-bulk--resolve-target target))
               (path (map-elt resolved :path))
               ((file-exists-p path)))
-    (let* ((dest-dir (expand-file-name (concat (string-remove-prefix "/" folder) "/cur") root))
-           (new-path (expand-file-name (file-name-nondirectory path) dest-dir)))
-      (make-directory dest-dir t)
-      (rename-file path new-path nil))))
+    (if (mailx-bulk--mu4e-active-p root)
+        (mailx-bulk--mu4e-move root resolved folder)
+      (let* ((dest-dir (expand-file-name (concat (string-remove-prefix "/" folder) "/cur") root))
+             (new-path (expand-file-name (file-name-nondirectory path) dest-dir)))
+        (make-directory dest-dir t)
+        (rename-file path new-path nil)))))
 
 (defun mailx-bulk--tag-apply (tier tags)
   "Apply TIER and TAGS on the current target."
@@ -171,17 +264,22 @@ Never overwrites an existing destination file."
               (resolved (mailx-bulk--resolve-target target))
               (path (map-elt resolved :path))
               (folder (or (map-elt resolved :maildir) (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive"))))
-    (mailx-stamp-and-move path root folder tier tags 'exclusive-access)))
+    (if (mailx-bulk--mu4e-active-p root)
+        (mailx-bulk--mu4e-classify root resolved tier tags folder)
+      (mailx-stamp-and-move path root folder tier tags 'exclusive-access))))
 
 (defun mailx-bulk--classify-apply (tier tags folder)
   "Stamp TIER and TAGS on the current target and move it to FOLDER.
-Applying an approved plan is where exclusive Maildir access is asserted;
-the reviewer is expected to have stopped other writers."
+With a running mu4e server for the root the change goes through it.
+Otherwise applying an approved plan is where exclusive Maildir access is
+asserted; the reviewer is expected to have stopped other writers."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
               (resolved (mailx-bulk--resolve-target target))
               (path (map-elt resolved :path)))
-    (mailx-stamp-and-move path root folder tier tags 'exclusive-access)))
+    (if (mailx-bulk--mu4e-active-p root)
+        (mailx-bulk--mu4e-classify root resolved tier tags folder)
+      (mailx-stamp-and-move path root folder tier tags 'exclusive-access))))
 
 (defun mailx-bulk--unsubscribe-apply ()
   "Record unsubscribed sender from current target."
