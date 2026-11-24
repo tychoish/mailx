@@ -47,7 +47,7 @@
         (progn
           (make-directory (expand-file-name ".mu" root))
           (let ((mailx-mcp-allowed-roots (list root))
-                (mailx-mcp-unclassified-query "tag:missing"))
+                (mailx-unclassified-query "tag:missing"))
             (cl-letf (((symbol-function 'process-file)
                        (lambda (_program _in destination _display &rest arguments)
                          (should (member "--maxnum=3" arguments))
@@ -96,6 +96,16 @@
                                                    :match (:from "d@example")))
                                            :status)))
             (should (equal 2 (length (mailx-rules-load root t))))))
+      (delete-directory root t))))
+
+(ert-deftest test-mailx-mcp-list-messages-rejects-empty-shared-query ()
+  (let ((root (make-temp-file "mailx-mcp-test-" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name ".mu" root))
+          (let ((mailx-mcp-allowed-roots (list root))
+                (mailx-unclassified-query "  "))
+            (should-error (mailx-mcp--list-messages root 1))))
       (delete-directory root t))))
 
 (provide 'test-mailx-mcp)

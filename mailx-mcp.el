@@ -20,6 +20,7 @@
 (require 'subr-x)
 (require 'mcpkit)
 (require 'mailx-rules)
+(require 'mailx-classify)
 (require 'mailx-bulk)
 
 (declare-function mailx-test-rule "mailx-rules" (root rule))
@@ -35,11 +36,6 @@
 (defcustom mailx-mcp-allowed-roots nil
   "Mail roots authorized for MCP inspection.  An empty list denies access."
   :type '(repeat directory) :group 'mailx-mcp)
-
-(defcustom mailx-mcp-unclassified-query
-  "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"
-  "Administrator-controlled mu query selecting unclassified messages."
-  :type 'string :group 'mailx-mcp)
 
 (defun mailx-mcp--root (root)
   "Validate ROOT against the configured canonical local root allowlist."
@@ -65,8 +61,8 @@
 (defun mailx-mcp--list-messages (root limit)
   "Return up to LIMIT unclassified header summaries in ROOT."
   (setq root (mailx-mcp--root root))
-  (unless (and (stringp mailx-mcp-unclassified-query)
-               (not (string-empty-p (string-trim mailx-mcp-unclassified-query))))
+  (unless (and (stringp mailx-unclassified-query)
+               (not (string-empty-p (string-trim mailx-unclassified-query))))
     (error "A nonempty unclassified query must be configured"))
   (unless (and (integerp limit) (<= 1 limit 100))
     (error "Limit must be between 1 and 100"))
@@ -77,7 +73,7 @@
           (let ((status (process-file "mu" nil (list (current-buffer) stderr-file) nil "find"
                                       (concat "--muhome=" (expand-file-name ".mu" root))
                                       "--format=sexp" (format "--maxnum=%d" limit)
-                                      mailx-mcp-unclassified-query))
+                                      mailx-unclassified-query))
                 (messages nil))
             (unless (zerop status)
               (let ((diagnostic (with-temp-buffer
