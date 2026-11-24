@@ -97,5 +97,24 @@
       (mailx-mcp--stage-triage-plan "/tmp" "t" '((:message_id "a@b")))
       (should (equal (reverse order) '(ensure create))))))
 
+(ert-deftest mailx-bulk-classify-op-stamps-and-moves-resolved-target ()
+  (mailx-bulk-setup)
+  (should (hitl-plan-get-op 'mailx 'classify))
+  (let ((hitl-plan-current-target '(:root "/mail" :message-id "a@b"))
+        (call nil))
+    (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
+               (lambda (_target) '(:path "/mail/inbox/new/m")))
+              ((symbol-function 'mailx-stamp-and-move)
+               (lambda (&rest args) (setq call args))))
+      (mailx-bulk--classify-apply 'read '("x") "/archive")
+      (should (equal call '("/mail/inbox/new/m" "/mail" "/archive" read ("x") exclusive-access))))))
+
+(ert-deftest mailx-bulk-classify-op-ignores-unresolvable-target ()
+  (let ((hitl-plan-current-target '(:root "/mail" :message-id "a@b")))
+    (cl-letf (((symbol-function 'mailx-bulk--resolve-target) (lambda (_target) nil))
+              ((symbol-function 'mailx-stamp-and-move)
+               (lambda (&rest _) (error "must not move"))))
+      (mailx-bulk--classify-apply 'read nil "/archive"))))
+
 (provide 'test-mailx-bulk)
 ;;; test-mailx-bulk.el ends here

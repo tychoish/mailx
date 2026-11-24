@@ -148,6 +148,16 @@ stored path alone: Maildir files can be renamed or replaced after staging."
               (folder (or (map-elt resolved :maildir) (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive"))))
     (mailx-stamp-and-move path root folder tier tags 'exclusive-access)))
 
+(defun mailx-bulk--classify-apply (tier tags folder)
+  "Stamp TIER and TAGS on the current target and move it to FOLDER.
+Applying an approved plan is where exclusive Maildir access is asserted;
+the reviewer is expected to have stopped other writers."
+  (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
+              (root (map-elt target :root))
+              (resolved (mailx-bulk--resolve-target target))
+              (path (map-elt resolved :path)))
+    (mailx-stamp-and-move path root folder tier tags 'exclusive-access)))
+
 (defun mailx-bulk--unsubscribe-apply ()
   "Record unsubscribed sender from current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
@@ -221,6 +231,15 @@ stored path alone: Maildir files can be renamed or replaced after staging."
                                 (split-string (read-string "Tags: ") " " t)))
     :apply #'mailx-bulk--tag-apply
     :describe (lambda (tier tags) (format "Tag %s [%s]" tier (string-join tags ", "))))
+  (hitl-plan-register-op 'mailx 'classify
+    :key ?c :label "Classify"
+    :read-args (lambda () (list (intern (read-string "Tier: " "read"))
+                                (split-string (read-string "Tags: ") " " t)
+                                (read-string "Destination folder: "
+                                             (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive"))))
+    :apply #'mailx-bulk--classify-apply
+    :describe (lambda (tier tags folder)
+                (format "Classify %s [%s] -> %s" tier (string-join tags ", ") folder)))
   (hitl-plan-register-op 'mailx 'unsubscribe
     :key ?u :label "Unsubscribe" :queueable t
     :apply #'mailx-bulk--unsubscribe-apply
