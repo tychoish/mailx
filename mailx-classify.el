@@ -27,6 +27,9 @@
   :group 'mailx
   :prefix "mailx-")
 
+(defvaralias 'mailx-views-unclassified-query 'mailx-unclassified-query)
+(defvaralias 'mailx-mcp-unclassified-query 'mailx-unclassified-query)
+
 (defcustom mailx-unclassified-query
   "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"
   "Mu query selecting unclassified messages.
@@ -35,9 +38,6 @@ buffer and the MCP unclassified listing.  Restrict it to staging folders
 if desired."
   :type 'string
   :group 'mailx-classify)
-
-(defvaralias 'mailx-views-unclassified-query 'mailx-unclassified-query)
-(defvaralias 'mailx-mcp-unclassified-query 'mailx-unclassified-query)
 
 (defcustom mailx-correspondents-filename "tools/mailx-correspondents.eld"
   "Path relative to mail root for correspondent address cache."
