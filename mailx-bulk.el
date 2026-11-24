@@ -252,6 +252,13 @@ stored path alone: Maildir files can be renamed or replaced after staging."
     domain))
 
 ;;;###autoload
+(defun mailx-bulk-ensure-domain ()
+  "Register the `mailx' hitl-plan domain unless it is already registered.
+Call before creating a plan; nothing else registers the domain."
+  (unless (hitl-plan-get-domain 'mailx)
+    (mailx-bulk-setup)))
+
+;;;###autoload
 (defun mailx-bulk-stage-current-view (&optional title)
   "Stage a hitl-plan for all messages in the active mu4e headers view."
   (interactive)
@@ -277,6 +284,7 @@ stored path alone: Maildir files can be renamed or replaced after staging."
     (unless targets
       (user-error "No messages found in current view"))
     (setq targets (nreverse targets))
+    (mailx-bulk-ensure-domain)
     (let ((plan (hitl-plan-create :domain 'mailx
                                   :description (or title "mailx-triage")
                                   :targets targets)))
@@ -300,6 +308,7 @@ stored path alone: Maildir files can be renamed or replaced after staging."
                 targets))
         (forward-line 1)))
     (when targets
+      (mailx-bulk-ensure-domain)
       (let ((plan (hitl-plan-create :domain 'mailx
                                     :description "mailx-mark-read"
                                     :targets (nreverse targets)

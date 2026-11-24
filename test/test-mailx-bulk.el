@@ -74,5 +74,28 @@
             (should-not opened)))
       (delete-directory root t))))
 
+(ert-deftest mailx-bulk-ensure-domain-registers-only-when-missing ()
+  (let ((setups 0))
+    (cl-letf (((symbol-function 'hitl-plan-get-domain) (lambda (_name) nil))
+              ((symbol-function 'mailx-bulk-setup) (lambda () (setq setups (1+ setups)))))
+      (mailx-bulk-ensure-domain)
+      (should (= setups 1)))
+    (setq setups 0)
+    (cl-letf (((symbol-function 'hitl-plan-get-domain) (lambda (_name) 'registered))
+              ((symbol-function 'mailx-bulk-setup) (lambda () (setq setups (1+ setups)))))
+      (mailx-bulk-ensure-domain)
+      (should (= setups 0)))))
+
+(ert-deftest mailx-bulk-mcp-staging-registers-domain-first ()
+  (require 'mailx-mcp)
+  (let ((order nil))
+    (cl-letf (((symbol-function 'mailx-mcp--root) (lambda (root) root))
+              ((symbol-function 'mailx-bulk-ensure-domain)
+               (lambda () (push 'ensure order)))
+              ((symbol-function 'hitl-plan-create)
+               (lambda (&rest _) (push 'create order) 'plan)))
+      (mailx-mcp--stage-triage-plan "/tmp" "t" '((:message_id "a@b")))
+      (should (equal (reverse order) '(ensure create))))))
+
 (provide 'test-mailx-bulk)
 ;;; test-mailx-bulk.el ends here

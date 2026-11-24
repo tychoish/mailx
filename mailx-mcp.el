@@ -138,6 +138,7 @@
   (setq root (mailx-mcp--root root))
   (unless (and (listp items) items)
     (error "Items must be a non-empty list of targets"))
+  (mailx-bulk-ensure-domain)
   (let* ((targets (seq-map (lambda (item)
                              (list :root root
                                    :message-id (map-elt item :message_id)
