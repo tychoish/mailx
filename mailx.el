@@ -508,6 +508,7 @@ Preview matching messages before confirming persistence in the current maildir."
     (condition-case nil
         (string-match-p regex "")
       (invalid-regexp (user-error "Invalid regular expression")))
+    (mailx-check-rule-regexps (list field regex))
     (let* ((id (intern id-name))
            (rules (mailx-rules-load root))
            (rule (make-mailx-rule :id id :match (list field regex)

@@ -129,5 +129,29 @@
           (should-not (file-exists-p (plist-get res :fdm))))
       (delete-directory root t))))
 
+(ert-deftest mailx-rules-regexp-heuristic-flags-nested-quantifiers ()
+  (seq-do (lambda (pat) (should (mailx-regexp-risky-p pat)))
+          '("\\(a*\\)*b" "\\(a+\\)+" "\\(x\\(y*\\)\\)*" "\\(foo.*\\)+")))
+
+(ert-deftest mailx-rules-regexp-heuristic-accepts-ordinary-patterns ()
+  (seq-do (lambda (pat) (should-not (mailx-regexp-risky-p pat)))
+          '("@example\\.com\\'" "^\\(receipt\\|invoice\\)" "foo.*bar"
+            "\\(a\\|b\\)+" "[*+]+" "\\(a\\*\\)*" "\\(?:ab\\)+" "\\(foo.*bar\\)?")))
+
+(ert-deftest mailx-rules-new-rule-check-rejects-risky-regexp ()
+  (should-error (mailx-check-rule-regexps '(:and (:from "x") (:subject "\\(a*\\)*b")))
+                :type 'user-error)
+  (should-not (mailx-check-rule-regexps '(:or (:from "foo.*bar") (:tag "\\(a*\\)*")))))
+
+(ert-deftest mailx-rules-load-only-warns-about-risky-regexp ()
+  (let (warned)
+    (cl-letf (((symbol-function 'display-warning)
+               (lambda (_type message &rest _) (push message warned))))
+      (mailx-test--with-rules-text
+       "((:id risky :match (:subject \"\\\\(a*\\\\)*b\") :folder \"/a\"))"
+       (lambda (root)
+         (should (= 1 (length (mailx-rules-load root t))))
+         (should (string-match-p "risky" (car warned))))))))
+
 (provide 'test-mailx-rules-store)
 ;;; test-mailx-rules-store.el ends here

@@ -127,6 +127,7 @@
                                 :source 'mcp :created (format-time-string "%Y-%m-%d")))
          (existing (mailx-rules-load root)))
     (mailx--validate-rule rule)
+    (mailx-check-rule-regexps match)
     (when (seq-some (lambda (r) (eq (mailx-rule-id r) id)) existing)
       (error "Rule ID already exists: %s" id))
     (mailx-rules-save root (append existing (list rule)))

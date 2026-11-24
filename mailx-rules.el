@@ -81,6 +81,63 @@
   (mailx-eval-condition (mailx-rule-match rule) nil)
   rule)
 
+(defun mailx-regexp-risky-p (pattern)
+  "Return non-nil if PATTERN has a quantified group containing a quantifier.
+This is a heuristic for patterns such as \\(a*\\)* or \\(a+\\)+ that can
+backtrack catastrophically and freeze Emacs.  It is not a guarantee: other
+slow patterns exist and no time limit is enforced."
+  (let ((i 0)
+        (n (length pattern))
+        (stack (list nil))
+        (risky nil))
+    (while (and (< i n) (not risky))
+      (let ((c (aref pattern i)))
+        (cond
+         ((and (eq c ?\\) (< (1+ i) n))
+          (let ((d (aref pattern (1+ i))))
+            (setq i (+ i 2))
+            (cond
+             ((eq d ?\() (push nil stack))
+             ((and (eq d ?\)) (cdr stack))
+              (let ((inner (pop stack))
+                    (quantified (or (and (< i n) (memq (aref pattern i) '(?* ?+)))
+                                    (string-prefix-p "\\{" (substring pattern i)))))
+                (when (and quantified inner) (setq risky t))
+                (when (or quantified inner) (setcar stack t))))
+             ((eq d ?{) (setcar stack t)))))
+         ((eq c ?\[)
+          (setq i (1+ i))
+          (when (and (< i n) (eq (aref pattern i) ?^)) (setq i (1+ i)))
+          (when (and (< i n) (eq (aref pattern i) ?\])) (setq i (1+ i)))
+          (while (and (< i n) (not (eq (aref pattern i) ?\])))
+            (if (and (eq (aref pattern i) ?\[) (< (1+ i) n) (eq (aref pattern (1+ i)) ?:)
+                     (string-match ":\\]" pattern i))
+                (setq i (match-end 0))
+              (setq i (1+ i))))
+          (setq i (1+ i)))
+         (t
+          (when (memq c '(?* ?+)) (setcar stack t))
+          (setq i (1+ i))))))
+    risky))
+
+(defun mailx--condition-regexps (condition)
+  "Return the regexp strings used by CONDITION."
+  (pcase condition
+    (`(,(or :and :or :not) . ,args) (seq-mapcat #'mailx--condition-regexps args))
+    (`(,(or :from :to :delivered-to :list :subject :maildir) ,(and (pred stringp) pat))
+     (list pat))
+    (_ nil)))
+
+(defun mailx-check-rule-regexps (condition)
+  "Signal a `user-error' if CONDITION contains a risky regexp.
+Use for new rules; see `mailx-regexp-risky-p' for the heuristic."
+  (seq-do (lambda (pattern)
+            (when (mailx-regexp-risky-p pattern)
+              (user-error "Regexp %S may backtrack catastrophically (nested quantifier)"
+                          pattern)))
+          (mailx--condition-regexps condition))
+  nil)
+
 (defun mailx--parse-rules-buffer (file)
   "Parse and validate the rules in the current buffer, read from FILE.
 Signal a `user-error' naming FILE, the entry index and rule id on failure."
@@ -110,6 +167,14 @@ Signal a `user-error' naming FILE, the entry index and rule id on failure."
            (user-error "Duplicate rule id %s in %s (indexes %d and %d)"
                        (mailx-rule-id rule) file first index))
          (setf (map-elt seen (mailx-rule-id rule)) index)
+         ;; Existing rules must keep loading: only warn.
+         (seq-do (lambda (pattern)
+                   (when (mailx-regexp-risky-p pattern)
+                     (display-warning
+                      'mailx
+                      (format "Rule %s in %s (index %d) has a regexp that may backtrack catastrophically: %S"
+                              (mailx-rule-id rule) file index pattern))))
+                 (mailx--condition-regexps (mailx-rule-match rule)))
          rule))
      data)))
 
@@ -166,7 +231,11 @@ Signal a `user-error' naming FILE, the entry index and rule id on failure."
    (t nil)))
 
 (defun mailx-eval-condition (condition msg)
-  "Evaluate declarative CONDITION against message property list MSG."
+  "Evaluate declarative CONDITION against message property list MSG.
+Patterns are Emacs regexps matched case-insensitively.  Emacs cannot
+interrupt a regexp match, so a pattern like \\(a*\\)*b can freeze Emacs;
+`mailx-regexp-risky-p' is a heuristic check for the common nested-quantifier
+form and is not a guarantee."
   (unless (consp condition) (error "Invalid condition: %S" condition))
   (let ((op (car condition)) (args (cdr condition)))
     (pcase op
