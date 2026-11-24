@@ -119,33 +119,47 @@ If nil, `org-capture' will prompt for a template."
 (declare-function mailx-stamp-and-move "mailx-classify" (path root target-folder tier &optional tags coordination))
 (declare-function org-capture "org-capture" (&optional goto keys))
 
+(defvar mailx-org--pending-capture nil
+  "Plist with :path and :msg of the message being captured, or nil.")
+
+(defun mailx-org--finalize-capture ()
+  "Refile the captured message once `org-capture' finishes.
+Run from `org-capture-after-finalize-hook'; removes itself.  The move needs
+delivery and sync stopped, so ask once and skip it when not confirmed."
+  (remove-hook 'org-capture-after-finalize-hook #'mailx-org--finalize-capture)
+  (let ((path (plist-get mailx-org--pending-capture :path))
+        (msg (plist-get mailx-org--pending-capture :msg)))
+    (setq mailx-org--pending-capture nil)
+    (when (and path
+               (not (bound-and-true-p org-note-abort))
+               (file-exists-p path))
+      (require 'mailx)
+      (if (y-or-n-p "Mail delivery and sync are stopped, so the message can be moved? ")
+          (condition-case err
+              (mailx-stamp-and-move path (mailx-current-maildir) (mailx-refile-folder msg)
+                                    'read nil 'exclusive-access)
+            (error (message "mailx: could not refile captured message: %s"
+                            (error-message-string err))))
+        (message "mailx: captured message not moved; stop mail delivery and sync to refile it")))))
+
 ;;;###autoload
 (defun mailx-capture-task (&optional key)
   "Capture an Org task from the current mail message.
-Refile the message upon finalization.
+Refile the message upon finalization, after confirming that mail delivery
+and sync are stopped.
 KEY is the optional `org-capture' template key."
   (interactive)
   (unless (derived-mode-p 'mu4e-headers-mode 'mu4e-view-mode)
     (user-error "Must be called from a mu4e headers or view buffer"))
-  (when-let* ((msg (mu4e-message-at-point t))
-              (path (plist-get msg :path)))
-    (mailx-org-store-link)
-    (let ((captured-path path)
-          (captured-msg msg))
-      (letrec ((finalize-hook
-                (lambda ()
-                  (remove-hook 'org-capture-after-finalize-hook finalize-hook)
-                  (unless (bound-and-true-p org-note-abort)
-                    (when (and captured-path (file-exists-p captured-path))
-                      (require 'mailx)
-                      (let* ((folder (mailx-refile-folder captured-msg))
-                             (root (mailx-current-maildir)))
-                        (condition-case err
-                            (mailx-stamp-and-move captured-path root folder 'read nil 'exclusive-access)
-                          (error (message "mailx: could not refile captured message: %s"
-                                          (error-message-string err))))))))))
-        (add-hook 'org-capture-after-finalize-hook finalize-hook)
-        (org-capture nil (or key mailx-org-capture-template-key))))))
+  (let* ((msg (mu4e-message-at-point t))
+         (path (plist-get msg :path)))
+    (if path
+        (progn
+          (mailx-org-store-link)
+          (setq mailx-org--pending-capture (list :path path :msg msg))
+          (add-hook 'org-capture-after-finalize-hook #'mailx-org--finalize-capture)
+          (org-capture nil (or key mailx-org-capture-template-key)))
+      (message "mailx: no message at point; nothing captured"))))
 
 (provide 'mailx-org)
 ;;; mailx-org.el ends here

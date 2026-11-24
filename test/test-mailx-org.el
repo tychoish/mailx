@@ -119,12 +119,14 @@
   (let* ((major-mode 'mu4e-headers-mode)
          (file (make-temp-file "mailx-capture-"))
          (messages nil))
+    (require 'mailx)
     (unwind-protect
         (cl-letf (((symbol-function 'mu4e-message-at-point)
                    (lambda (&optional _) (list :message-id "<m@example.org>" :path file :subject "Task")))
                   ((symbol-function 'mailx-org-store-link) #'ignore)
                   ((symbol-function 'mailx-refile-folder) (lambda (_msg) "/archive"))
                   ((symbol-function 'mailx-current-maildir) (lambda () "/tmp/mail/"))
+                  ((symbol-function 'y-or-n-p) (lambda (_prompt) t))
                   ((symbol-function 'mailx-stamp-and-move)
                    (lambda (&rest _) (error "disk on fire")))
                   ((symbol-function 'message)
@@ -135,6 +137,56 @@
           (mailx-capture-task "t")
           (should (seq-some (lambda (text) (string-match-p "disk on fire" text)) messages)))
       (delete-file file))))
+
+(defmacro mailx-org-test--with-capture (prompts moves messages &rest body)
+  "Run BODY with a stubbed capture of a temp file; record into the places."
+  (declare (indent 3))
+  `(let* ((major-mode 'mu4e-headers-mode)
+          (file (make-temp-file "mailx-capture-")))
+     ;; Load first so loading does not overwrite the stubs below.
+     (require 'mailx)
+     (unwind-protect
+         (cl-letf (((symbol-function 'mu4e-message-at-point)
+                    (lambda (&optional _) (list :message-id "<m@example.org>" :path file :subject "Task")))
+                   ((symbol-function 'mailx-org-store-link) #'ignore)
+                   ((symbol-function 'mailx-refile-folder) (lambda (_msg) "/archive"))
+                   ((symbol-function 'mailx-current-maildir) (lambda () "/tmp/mail/"))
+                   ((symbol-function 'y-or-n-p)
+                    (lambda (prompt) (push prompt ,prompts) t))
+                   ((symbol-function 'mailx-stamp-and-move)
+                    (lambda (&rest args) (push args ,moves)))
+                   ((symbol-function 'message)
+                    (lambda (format-string &rest args)
+                      (push (apply #'format format-string args) ,messages)))
+                   ((symbol-function 'org-capture)
+                    (lambda (&rest _) (run-hooks 'org-capture-after-finalize-hook))))
+           ,@body)
+       (delete-file file))))
+
+(ert-deftest mailx-org-capture-task-asks-before-moving ()
+  (let (prompts moves messages)
+    (mailx-org-test--with-capture prompts moves messages
+      (mailx-capture-task "t")
+      (should (= 1 (length prompts)))
+      (should (string-match-p "delivery" (car prompts)))
+      (should (= 1 (length moves)))
+      (should (eq 'exclusive-access (nth 5 (car moves)))))))
+
+(ert-deftest mailx-org-capture-task-declined-skips-move ()
+  (let (prompts moves messages)
+    (mailx-org-test--with-capture prompts moves messages
+      (cl-letf (((symbol-function 'y-or-n-p) (lambda (_p) nil)))
+        (mailx-capture-task "t"))
+      (should-not moves)
+      (should (seq-some (lambda (text) (string-match-p "not moved" text)) messages)))))
+
+(ert-deftest mailx-org-capture-task-no-message-at-point-says-so ()
+  (let (prompts moves messages)
+    (mailx-org-test--with-capture prompts moves messages
+      (cl-letf (((symbol-function 'mu4e-message-at-point) (lambda (&optional _) nil)))
+        (mailx-capture-task "t"))
+      (should-not moves)
+      (should (seq-some (lambda (text) (string-match-p "no message at point" text)) messages)))))
 
 (provide 'test-mailx-org)
 ;;; test-mailx-org.el ends here
