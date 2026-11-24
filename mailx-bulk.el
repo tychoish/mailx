@@ -61,6 +61,8 @@
 
 (defvar hitl-plan-current-target)
 (defvar mu4e-change-filenames-when-moving)
+(defvar mu4e-update-func)
+(defvar mu4e-error-func)
 (defvar mailx-archive-folder)
 (defvar mailx-trash-folder)
 
@@ -144,20 +146,36 @@ stored path alone: Maildir files can be renamed or replaced after staging."
     (error "This mu4e does not provide %s; update mu4e or stop its server" function))
   (apply function args))
 
-(defun mailx-bulk--mu4e-wait (root message-id predicate what)
-  "Wait until PREDICATE holds for MESSAGE-ID's mu record under ROOT.
-Poll the database for `mailx-bulk-mu4e-timeout' seconds, letting the mu4e
-server process run; signal an error mentioning WHAT on timeout."
-  (let ((deadline (+ (float-time) mailx-bulk-mu4e-timeout))
-        (query (mailx-bulk--msgid-query message-id))
-        (done nil))
-    (while (and (not done) (< (float-time) deadline))
-      (setq done (seq-some predicate (mailx--mu-find root query)))
-      (unless done
-        (accept-process-output (and (boundp 'mu4e--server-process)
-                                    (processp (symbol-value 'mu4e--server-process))
-                                    (symbol-value 'mu4e--server-process))
-                               0.1)))
+(defun mailx-bulk--mu4e-confirm (message-id predicate what thunk)
+  "Run THUNK, then wait for the mu4e server to confirm the change to MESSAGE-ID.
+THUNK issues the asynchronous server commands.  Confirmation is an :update
+from the server whose message satisfies PREDICATE; a server error aborts
+the wait.  Wait at most `mailx-bulk-mu4e-timeout' seconds and signal an
+error mentioning WHAT on failure or timeout.  The server's own replies are
+used because a separate `mu find' only sees committed changes, which the
+server batches."
+  (let* ((done nil)
+         (failure nil)
+         (update-handler (and (boundp 'mu4e-update-func) mu4e-update-func))
+         (mu4e-update-func
+          (lambda (message &rest rest)
+            (when (and (equal message-id (plist-get message :message-id))
+                       (funcall predicate message))
+              (setq done t))
+            (when update-handler
+              (apply update-handler message rest))))
+         (mu4e-error-func
+          (lambda (code text &rest _rest)
+            (setq failure (format "%s %s" code text))))
+         (process (and (boundp 'mu4e--server-process)
+                       (processp (symbol-value 'mu4e--server-process))
+                       (symbol-value 'mu4e--server-process)))
+         (deadline (+ (float-time) mailx-bulk-mu4e-timeout)))
+    (funcall thunk)
+    (while (and (not done) (not failure) (< (float-time) deadline))
+      (accept-process-output process 0.1))
+    (when failure
+      (error "mu4e failed %s for %s: %s" what message-id failure))
     (unless done
       (error "mu4e did not confirm %s for %s within %ss"
              what message-id mailx-bulk-mu4e-timeout))))
@@ -166,36 +184,37 @@ server process run; signal an error mentioning WHAT on timeout."
   "Return FOLDER validated and with a leading slash, as mu4e expects."
   (mailx-bulk-check-folder (if (string-prefix-p "/" folder) folder (concat "/" folder))))
 
-(defun mailx-bulk--mu4e-move (root resolved folder)
-  "Move RESOLVED under ROOT to FOLDER through mu4e, keeping its base name."
+(defun mailx-bulk--mu4e-move (resolved folder)
+  "Move RESOLVED to FOLDER through mu4e, keeping its base name."
   (let ((id (map-elt resolved :message-id))
         (mu4e-change-filenames-when-moving nil))
     (unless (equal folder (map-elt resolved :maildir))
-      (mailx-bulk--mu4e-call 'mu4e--server-move id folder nil t))
-    (mailx-bulk--mu4e-wait root id
-                           (lambda (message) (equal folder (map-elt message :maildir)))
-                           (format "move to %s" folder))))
+      (mailx-bulk--mu4e-confirm
+       id (lambda (message) (equal folder (map-elt message :maildir)))
+       (format "move to %s" folder)
+       (lambda () (mailx-bulk--mu4e-call 'mu4e--server-move id folder nil t))))))
 
-(defun mailx-bulk--mu4e-classify (root resolved tier tags folder)
-  "Stamp TIER and TAGS on RESOLVED under ROOT, then move it to FOLDER.
-Stamp in place, tell mu4e to re-read the file, move it if FOLDER differs,
-and wait until the database shows the new folder and tier tag."
+(defun mailx-bulk--mu4e-classify (resolved tier tags folder)
+  "Stamp TIER and TAGS on RESOLVED, then move it to FOLDER through mu4e.
+Stamp in place, tell mu4e to re-read the file, and move it if FOLDER
+differs, waiting until the server reports the new folder and tier tag."
   (let* ((folder (mailx-bulk--mu4e-folder folder))
          (path (map-elt resolved :path))
          (id (map-elt resolved :message-id))
-         (tier-tag (concat "tier:" (symbol-name tier))))
+         (tier-tag (concat "tier:" (symbol-name tier)))
+         (mu4e-change-filenames-when-moving nil))
     (unless (and (fboundp 'mu4e--server-add) (fboundp 'mu4e--server-move))
       (error "This mu4e lacks the server commands needed to apply changes"))
-    (mailx-stamp-in-place path tier tags)
-    (mailx-bulk--mu4e-call 'mu4e--server-add path)
-    (let ((mu4e-change-filenames-when-moving nil))
-      (unless (equal folder (map-elt resolved :maildir))
-        (mailx-bulk--mu4e-call 'mu4e--server-move id folder nil t)))
-    (mailx-bulk--mu4e-wait root id
-                           (lambda (message)
-                             (and (equal folder (map-elt message :maildir))
-                                  (member tier-tag (map-elt message :tags))))
-                           (format "tier %s in %s" tier folder))))
+    (mailx-bulk--mu4e-confirm
+     id (lambda (message)
+          (and (equal folder (map-elt message :maildir))
+               (member tier-tag (map-elt message :tags))))
+     (format "tier %s in %s" tier folder)
+     (lambda ()
+       (mailx-stamp-in-place path tier tags)
+       (mailx-bulk--mu4e-call 'mu4e--server-add path)
+       (unless (equal folder (map-elt resolved :maildir))
+         (mailx-bulk--mu4e-call 'mu4e--server-move id folder nil t))))))
 
 (defun mailx-bulk--mark-read-apply ()
   "Apply mark-read to the current target."
@@ -204,11 +223,12 @@ and wait until the database shows the new folder and tier tag."
               (path (map-elt resolved :path))
               ((file-exists-p path)))
     (if (mailx-bulk--mu4e-active-p (map-elt target :root))
-        (let ((mu4e-change-filenames-when-moving nil))
-          (mailx-bulk--mu4e-call 'mu4e--server-move (map-elt resolved :message-id) nil "+S-N")
-          (mailx-bulk--mu4e-wait (map-elt target :root) (map-elt resolved :message-id)
-                                 (lambda (message) (memq 'seen (map-elt message :flags)))
-                                 "mark read"))
+        (let ((id (map-elt resolved :message-id))
+              (mu4e-change-filenames-when-moving nil))
+          (mailx-bulk--mu4e-confirm
+           id (lambda (message) (memq 'seen (map-elt message :flags)))
+           "mark read"
+           (lambda () (mailx-bulk--mu4e-call 'mu4e--server-move id nil "+S-N"))))
       (let* ((dir (file-name-directory path))
              (parent (file-name-nondirectory (directory-file-name dir)))
              (grandparent (file-name-directory (directory-file-name dir)))
@@ -251,7 +271,7 @@ Never overwrites an existing destination file."
               (path (map-elt resolved :path))
               ((file-exists-p path)))
     (if (mailx-bulk--mu4e-active-p root)
-        (mailx-bulk--mu4e-move root resolved folder)
+        (mailx-bulk--mu4e-move resolved folder)
       (let* ((dest-dir (expand-file-name (concat (string-remove-prefix "/" folder) "/cur") root))
              (new-path (expand-file-name (file-name-nondirectory path) dest-dir)))
         (make-directory dest-dir t)
@@ -265,7 +285,7 @@ Never overwrites an existing destination file."
               (path (map-elt resolved :path))
               (folder (or (map-elt resolved :maildir) (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive"))))
     (if (mailx-bulk--mu4e-active-p root)
-        (mailx-bulk--mu4e-classify root resolved tier tags folder)
+        (mailx-bulk--mu4e-classify resolved tier tags folder)
       (mailx-stamp-and-move path root folder tier tags 'exclusive-access))))
 
 (defun mailx-bulk--classify-apply (tier tags folder)
@@ -278,7 +298,7 @@ asserted; the reviewer is expected to have stopped other writers."
               (resolved (mailx-bulk--resolve-target target))
               (path (map-elt resolved :path)))
     (if (mailx-bulk--mu4e-active-p root)
-        (mailx-bulk--mu4e-classify root resolved tier tags folder)
+        (mailx-bulk--mu4e-classify resolved tier tags folder)
       (mailx-stamp-and-move path root folder tier tags 'exclusive-access))))
 
 (defun mailx-bulk--unsubscribe-apply ()

@@ -15,19 +15,28 @@
 (defconst test-mailx-bulk-mu4e--file (make-temp-file "mailx-mu4e-file-")
   "A real file standing in for a resolved message path.")
 
-(defmacro test-mailx-bulk-mu4e--with-server (calls found &rest body)
+(defvar mu4e-update-func)
+(defvar mu4e-error-func)
+
+(defun test-mailx-bulk-mu4e--deliver (messages)
+  "Deliver each of MESSAGES to the update handler as the server would."
+  (seq-do (lambda (message) (funcall mu4e-update-func message nil nil)) messages))
+
+(defmacro test-mailx-bulk-mu4e--with-server (calls replies &rest body)
   "Run BODY with stubbed mu4e server functions recording into CALLS.
-FOUND is a function of no arguments returning the `mailx--mu-find' result."
+REPLIES is a function of the command symbol returning the messages the
+server answers with."
   (declare (indent 2))
   `(cl-letf (((symbol-function 'mailx-bulk--mu4e-active-p) (lambda (_root) t))
              ((symbol-function 'mu4e--server-move)
               (lambda (&rest args)
                 (push (cons 'move (append args (list mu4e-change-filenames-when-moving)))
-                      ,calls)))
+                      ,calls)
+                (test-mailx-bulk-mu4e--deliver (funcall ,replies 'move))))
              ((symbol-function 'mu4e--server-add)
-              (lambda (&rest args) (push (cons 'add args) ,calls)))
-             ((symbol-function 'mailx--mu-find)
-              (lambda (&rest _) (funcall ,found))))
+              (lambda (&rest args)
+                (push (cons 'add args) ,calls)
+                (test-mailx-bulk-mu4e--deliver (funcall ,replies 'add)))))
      (let ((mailx-bulk-mu4e-timeout 0.3)
            (mu4e-change-filenames-when-moving t))
        ,@body)))
@@ -92,7 +101,7 @@ FOUND is a function of no arguments returning the `mailx--mu-find' result."
     (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
                (lambda (_t) `(:path ,test-mailx-bulk-mu4e--file :maildir "/inbox" :message-id "a@b"))))
       (test-mailx-bulk-mu4e--with-server calls
-          (lambda () '((:message-id "a@b" :maildir "/inbox" :flags (seen))))
+          (lambda (_c) '((:message-id "a@b" :maildir "/inbox" :flags (seen))))
         (mailx-bulk--mark-read-apply)
         (should (equal calls '((move "a@b" nil "+S-N" nil))))))))
 
@@ -102,11 +111,11 @@ FOUND is a function of no arguments returning the `mailx--mu-find' result."
     (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
                (lambda (_t) `(:path ,test-mailx-bulk-mu4e--file :maildir "/inbox" :message-id "a@b"))))
       (test-mailx-bulk-mu4e--with-server calls
-          (lambda () '((:message-id "a@b" :maildir "/archive")))
+          (lambda (_c) '((:message-id "a@b" :maildir "/archive")))
         (mailx-bulk--refile-apply "/archive")
         (should (equal calls '((move "a@b" "/archive" nil t nil)))))
       (setq calls nil)
-      (test-mailx-bulk-mu4e--with-server calls (lambda () nil)
+      (test-mailx-bulk-mu4e--with-server calls (lambda (_c) nil)
         (should-error (mailx-bulk--refile-apply "/../x") :type 'user-error)
         (should-not calls)))))
 
@@ -116,7 +125,7 @@ FOUND is a function of no arguments returning the `mailx--mu-find' result."
     (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
                (lambda (_t) `(:path ,test-mailx-bulk-mu4e--file :maildir "/inbox" :message-id "a@b"))))
       (test-mailx-bulk-mu4e--with-server calls
-          (lambda () '((:message-id "a@b" :maildir "/inbox")))
+          (lambda (_c) '((:message-id "a@b" :maildir "/inbox")))
         (should-error (mailx-bulk--refile-apply "/archive"))
         (should (= 1 (length calls)))))))
 
@@ -124,7 +133,6 @@ FOUND is a function of no arguments returning the `mailx--mu-find' result."
   (let* ((root (test-mailx-bulk-mu4e--maildir))
          (path (expand-file-name "inbox/cur/m1:2,S" root))
          (calls nil)
-         (polls 0)
          (hitl-plan-current-target (list :root root :message-id "a@b")))
     (unwind-protect
         (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
@@ -132,16 +140,14 @@ FOUND is a function of no arguments returning the `mailx--mu-find' result."
                   ((symbol-function 'mailx-stamp-and-move)
                    (lambda (&rest _) (error "filesystem path must not run"))))
           (test-mailx-bulk-mu4e--with-server calls
-              (lambda ()
-                (setq polls (1+ polls))
-                (if (< polls 3)
-                    '((:message-id "a@b" :maildir "/inbox" :tags ("keep")))
+              (lambda (command)
+                (if (eq command 'add)
+                    '((:message-id "a@b" :maildir "/inbox" :tags ("keep" "tier:read" "t1")))
                   '((:message-id "a@b" :maildir "/archive" :tags ("keep" "tier:read" "t1")))))
             (mailx-bulk--classify-apply 'read '("t1") "/archive")
             (should (equal (reverse calls)
                            (list (list 'add path)
                                  (list 'move "a@b" "/archive" nil t nil))))
-            (should (>= polls 3))
             (should (string-match-p "X-Label: keep tier:read t1"
                                     (with-temp-buffer
                                       (insert-file-contents path)
@@ -157,10 +163,34 @@ FOUND is a function of no arguments returning the `mailx--mu-find' result."
         (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
                    (lambda (_t) (list :path path :maildir "/inbox" :message-id "a@b"))))
           (test-mailx-bulk-mu4e--with-server calls
-              (lambda () '((:message-id "a@b" :maildir "/inbox" :tags ("tier:cursory"))))
+              (lambda (_c) '((:message-id "a@b" :maildir "/inbox" :tags ("tier:cursory"))))
             (mailx-bulk--tag-apply 'cursory nil)
             (should (equal calls (list (list 'add path))))))
       (delete-directory root t))))
+
+;; Confirmation must wait for the final update, not an earlier one.
+(ert-deftest mailx-bulk-mu4e-classify-waits-for-the-move-update ()
+  (let* ((root (test-mailx-bulk-mu4e--maildir))
+         (path (expand-file-name "inbox/cur/m1:2,S" root))
+         (calls nil)
+         (hitl-plan-current-target (list :root root :message-id "a@b")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
+                   (lambda (_t) (list :path path :maildir "/inbox" :message-id "a@b"))))
+          (test-mailx-bulk-mu4e--with-server calls
+              (lambda (_c) '((:message-id "a@b" :maildir "/inbox" :tags ("tier:read"))))
+            (should-error (mailx-bulk--classify-apply 'read nil "/archive"))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-bulk-mu4e-server-error-fails-the-step ()
+  (let ((hitl-plan-current-target '(:root "/mail" :message-id "a@b")))
+    (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
+               (lambda (_t) `(:path ,test-mailx-bulk-mu4e--file :maildir "/inbox" :message-id "a@b")))
+              ((symbol-function 'mailx-bulk--mu4e-active-p) (lambda (_r) t))
+              ((symbol-function 'mu4e--server-move)
+               (lambda (&rest _) (funcall mu4e-error-func 11 "boom"))))
+      (let ((mailx-bulk-mu4e-timeout 5))
+        (should-error (mailx-bulk--refile-apply "/archive"))))))
 
 (ert-deftest mailx-bulk-mu4e-errors-when-mu4e-too-old ()
   ;; Unbind the server functions so a mu4e autoload cannot start a server.
