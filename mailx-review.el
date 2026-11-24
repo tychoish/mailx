@@ -1,0 +1,378 @@
+;;; mailx-review.el --- Review and edit proposed mail classifications -*- lexical-binding: t; -*-
+
+;; Author: sam kleinman <sam@tychoish.com>
+;; Maintainer: sam kleinman <sam@tychoish.com>
+;; Version: 0.1.0
+;; Package-Requires: ((emacs "29.1") (hitl "0.1.0") (annotated-completing-read "0.1.0"))
+;; Keywords: mail, convenience
+;; URL: https://github.com/tychoish/mailx
+
+;; This file is not part of GNU Emacs.
+
+;;; Commentary:
+;; `mailx-review' classifies unclassified mail without changing any of it and
+;; lists each proposal in a tabulated buffer.  Proposals can be edited,
+;; accepted, skipped, or promoted to a persistent rule.  Nothing is moved from
+;; this buffer: accepted entries become a `mailx' hitl-plan that a human
+;; reviews and applies, which is where exclusive Maildir access is asserted.
+
+;;; Code:
+
+(require 'map)
+(require 'seq)
+(require 'subr-x)
+(require 'tabulated-list)
+(require 'mailx)
+(require 'mailx-classify)
+(require 'mailx-rules)
+(require 'mailx-bulk)
+
+(declare-function annotated-completing-read "annotated-completing-read")
+(declare-function hitl-plan-review "hitl-plan-ui" (plan-or-id &optional display))
+(declare-function mu4e-context-current "mu4e-context")
+(declare-function mu4e-context-name "mu4e-context")
+
+(defgroup mailx-review nil
+  "Review buffer for proposed mail classifications."
+  :group 'mailx
+  :prefix "mailx-review-")
+
+(defcustom mailx-review-limit 100
+  "Maximum number of messages `mailx-review' classifies at once."
+  :type 'integer
+  :group 'mailx-review)
+
+(defvar-local mailx-review--root nil
+  "Mail root whose proposals the current review buffer shows.")
+
+(defvar-local mailx-review--entries nil
+  "Review entries, in display order.
+Each entry is a plist with :message :tier :folder :tags :source :status.
+:status is one of `pending', `accepted', `skipped' or `planned'.")
+
+;;; Entries
+
+(defun mailx-review--entry (message tier folder tags source)
+  "Return a pending review entry for MESSAGE and its proposal.
+TIER, FOLDER and TAGS are the proposed classification; SOURCE says where
+the proposal came from."
+  (list :message message :tier tier :folder folder :tags tags
+        :source source :status 'pending))
+
+(defun mailx-review--result-entry (result)
+  "Return a review entry for a `mailx-classify-batch' RESULT."
+  (let ((rule (map-elt (map-elt result :classification) :rule)))
+    (mailx-review--entry (map-elt result :message)
+                         (map-elt result :tier)
+                         (map-elt result :folder)
+                         (map-elt result :tags)
+                         (cond
+                          (rule (format "rule:%s" (mailx-rule-id rule)))
+                          (t "heuristic")))))
+
+(defun mailx-review--unresolved-entry (message)
+  "Return an empty-proposal entry for MESSAGE, which no stage classified."
+  (mailx-review--entry message nil (map-elt message :maildir) nil "none"))
+
+(defun mailx-review--entry-id (entry)
+  "Return the identifier of ENTRY, its message path."
+  (map-elt (map-elt entry :message) :path))
+
+(defun mailx-review--entry-at-point ()
+  "Return the entry on the current line."
+  (or (when-let* ((id (tabulated-list-get-id)))
+        (seq-find (lambda (entry) (equal (mailx-review--entry-id entry) id))
+                  mailx-review--entries))
+      (user-error "No message on this line")))
+
+(defun mailx-review--targets ()
+  "Return the entries in the active region, else the one at point."
+  (cond
+   ((use-region-p)
+    (let ((end (region-end))
+          (ids nil))
+      (save-excursion
+        (goto-char (region-beginning))
+        (while (and (< (point) end) (not (eobp)))
+          (when-let* ((id (tabulated-list-get-id)))
+            (push id ids))
+          (forward-line 1)))
+      (or (seq-filter (lambda (entry) (member (mailx-review--entry-id entry) ids))
+                      mailx-review--entries)
+          (user-error "No messages in region"))))
+   (t (list (mailx-review--entry-at-point)))))
+
+;;; Display
+
+(defun mailx-review--row (entry)
+  "Return the `tabulated-list-entries' row for ENTRY."
+  (let ((message (map-elt entry :message))
+        (tier (map-elt entry :tier)))
+    (list (mailx-review--entry-id entry)
+          (vector (symbol-name (map-elt entry :status))
+                  (if tier (symbol-name tier) "-")
+                  (or (map-elt entry :folder) "-")
+                  (string-join (map-elt entry :tags) ",")
+                  (map-elt entry :source)
+                  (or (car (mailx--sender-addresses (map-elt message :from))) "")
+                  (or (map-elt message :subject) "")))))
+
+(defun mailx-review--render ()
+  "Redraw the review table, keeping point."
+  (setq tabulated-list-entries (seq-map #'mailx-review--row mailx-review--entries))
+  (tabulated-list-print t))
+
+(defun mailx-review--load ()
+  "Classify unclassified mail without changing it and fill the buffer."
+  (let ((result (mailx-classify-batch mailx-review--root
+                                      (list :dry-run t :limit mailx-review-limit))))
+    (setq mailx-review--entries
+          (append (seq-map #'mailx-review--result-entry (map-elt result :results))
+                  (seq-map #'mailx-review--unresolved-entry (map-elt result :unresolved))))
+    (mailx-review--render)
+    result))
+
+(defun mailx-review--revert (&optional _ignore-auto _noconfirm)
+  "Reclassify, asking first when that would discard review decisions."
+  (when (and (seq-some (lambda (entry) (not (eq (map-elt entry :status) 'pending)))
+                       mailx-review--entries)
+             (not (yes-or-no-p "Discard accept/skip decisions and reclassify? ")))
+    (user-error "Reclassification cancelled"))
+  (mailx-review--load))
+
+;;; Editing
+
+(defun mailx-review--check-folder (folder)
+  "Signal a `user-error' unless FOLDER is a plausible Maildir folder."
+  (unless (and (stringp folder)
+               (not (string-empty-p folder))
+               (not (member ".." (split-string folder "/" t)))
+               (not (string-match-p "[\0-\37\177]" folder)))
+    (user-error "Invalid folder: %S" folder)))
+
+(defun mailx-review--check-editable (entries)
+  "Signal a `user-error' if any of ENTRIES is already in a plan."
+  (when (seq-some (lambda (entry) (eq (map-elt entry :status) 'planned)) entries)
+    (user-error "Entry is already in a plan")))
+
+(defun mailx-review-edit (entries prop value)
+  "Set PROP of ENTRIES to VALUE after validating it.
+PROP is :tier, :folder or :tags.  An edited accepted entry returns to
+pending so every accepted entry matches what was reviewed."
+  (mailx-review--check-editable entries)
+  (pcase prop
+    (:folder (mailx-review--check-folder value))
+    (:tier (unless (memq value mailx-attention-tiers)
+             (user-error "Unknown attention tier: %S" value)))
+    (:tags (mailx--validated-classification
+            (list :tier (car mailx-attention-tiers) :tags value)))
+    (_ (error "Cannot edit %S" prop)))
+  (seq-do (lambda (entry)
+            (map-put! entry prop value)
+            (when (eq (map-elt entry :status) 'accepted)
+              (map-put! entry :status 'pending)))
+          entries)
+  entries)
+
+(defun mailx-review--read-tier ()
+  "Read an attention tier."
+  (intern (annotated-completing-read
+           (seq-map (lambda (tier) (cons (symbol-name tier) nil)) mailx-attention-tiers)
+           :prompt "Attention tier: " :require-match t)))
+
+(defun mailx-review-set-tier ()
+  "Set the proposed tier of the entry at point, or of the entries in the region."
+  (interactive)
+  (mailx-review-edit (mailx-review--targets) :tier (mailx-review--read-tier))
+  (mailx-review--render))
+
+(defun mailx-review-set-folder ()
+  "Set the proposed folder of the entry at point, or of the entries in the region."
+  (interactive)
+  (let ((entries (mailx-review--targets)))
+    (mailx-review-edit entries :folder
+                       (read-string "Folder: " (map-elt (car entries) :folder)))
+    (mailx-review--render)))
+
+(defun mailx-review-set-tags ()
+  "Set the proposed tags of the entry at point, or of the entries in the region."
+  (interactive)
+  (let ((entries (mailx-review--targets)))
+    (mailx-review-edit entries :tags
+                       (split-string
+                        (read-string "Tags (space separated): "
+                                     (string-join (map-elt (car entries) :tags) " "))
+                        " " t))
+    (mailx-review--render)))
+
+;;; Accepting
+
+(defun mailx-review-mark (entries status)
+  "Set the review STATUS of ENTRIES to `accepted' or `skipped'.
+Accepting requires every entry to have both a tier and a folder."
+  (mailx-review--check-editable entries)
+  (when (and (eq status 'accepted)
+             (seq-some (lambda (entry)
+                         (not (and (map-elt entry :tier) (map-elt entry :folder))))
+                       entries))
+    (user-error "Set a tier and folder before accepting"))
+  (seq-do (lambda (entry) (map-put! entry :status status)) entries)
+  entries)
+
+(defun mailx-review-accept ()
+  "Accept the proposal at point, or in the region, and move on."
+  (interactive)
+  (mailx-review-mark (mailx-review--targets) 'accepted)
+  (mailx-review--render)
+  (forward-line 1))
+
+(defun mailx-review-skip ()
+  "Skip the entry at point, or in the region, and move on."
+  (interactive)
+  (mailx-review-mark (mailx-review--targets) 'skipped)
+  (mailx-review--render)
+  (forward-line 1))
+
+(defun mailx-review-accept-all ()
+  "Accept every pending entry that already has a complete proposal."
+  (interactive)
+  (let ((ready (seq-filter (lambda (entry)
+                             (and (eq (map-elt entry :status) 'pending)
+                                  (map-elt entry :tier)
+                                  (map-elt entry :folder)))
+                           mailx-review--entries)))
+    (unless ready
+      (user-error "No pending entries have a complete proposal"))
+    (mailx-review-mark ready 'accepted)
+    (mailx-review--render)
+    (message "Accepted %d entries" (length ready))))
+
+;;; Applying and promoting
+
+(defun mailx-review--target (entry root)
+  "Return the hitl target for ENTRY under ROOT."
+  (let ((message (map-elt entry :message)))
+    (unless (map-elt message :message-id)
+      (user-error "Message has no Message-ID: %s" (or (map-elt message :subject) "")))
+    (list :root root
+          :context (when (fboundp 'mu4e-context-current)
+                     (when-let* ((context (mu4e-context-current)))
+                       (mu4e-context-name context)))
+          :message-id (map-elt message :message-id)
+          :subject (map-elt message :subject)
+          :path (map-elt message :path))))
+
+(defun mailx-review-create-plan (entries root)
+  "Create a hitl plan applying the classification of each of ENTRIES under ROOT.
+Entries sharing a tier, folder and tags share one `classify' operation."
+  (let ((groups (seq-group-by (lambda (entry)
+                                (list (map-elt entry :tier)
+                                      (map-elt entry :tags)
+                                      (map-elt entry :folder)))
+                              entries)))
+    (mailx-bulk-ensure-domain)
+    (let ((plan (hitl-plan-create :domain 'mailx :description "mailx-review")))
+      (seq-do (lambda (group)
+                (hitl-plan-add-op plan
+                                  (cons 'classify (car group))
+                                  (seq-map (lambda (entry) (mailx-review--target entry root))
+                                           (cdr group))))
+              groups)
+      plan)))
+
+(defun mailx-review-apply ()
+  "Turn the accepted entries into a hitl plan and open it for review."
+  (interactive)
+  (let ((accepted (seq-filter (lambda (entry) (eq (map-elt entry :status) 'accepted))
+                              mailx-review--entries)))
+    (unless accepted
+      (user-error "No accepted entries"))
+    (let ((plan (mailx-review-create-plan accepted mailx-review--root)))
+      (seq-do (lambda (entry) (map-put! entry :status 'planned)) accepted)
+      (mailx-review--render)
+      (hitl-plan-review plan))))
+
+(defun mailx-review-promote-entry (entry root)
+  "Offer to save a rule reproducing ENTRY's proposal under ROOT.
+Return the saved rule, or nil when declined.  The rule matches the sender's
+whole domain, so the confirmation shows how many messages it would catch."
+  (unless (map-elt entry :tier)
+    (user-error "Set a tier before promoting to a rule"))
+  (let* ((rule (mailx-classify-propose-rule
+                (map-elt entry :message)
+                (list :tier (map-elt entry :tier)
+                      :folder (map-elt entry :folder)
+                      :tags (map-elt entry :tags))))
+         (existing (mailx-rules-load root)))
+    (when (seq-some (lambda (other) (eq (mailx-rule-id other) (mailx-rule-id rule)))
+                    existing)
+      (user-error "Rule ID already exists: %s" (mailx-rule-id rule)))
+    (let ((preview (mailx-test-rule root rule)))
+      (when (yes-or-no-p
+             (format "Rule %s matches %d messages%s; save? "
+                     (mailx-rule-id rule)
+                     (map-elt preview :count)
+                     (if-let* ((subjects (map-elt preview :subjects)))
+                         (format " (e.g. %s)" (string-join subjects "; "))
+                       "")))
+        (mailx-rules-save root (append existing (list rule)))
+        rule))))
+
+(defun mailx-review-promote ()
+  "Save a rule reproducing the proposal at point."
+  (interactive)
+  (when-let* ((rule (mailx-review-promote-entry (mailx-review--entry-at-point)
+                                                mailx-review--root)))
+    (message "Saved mailx rule %s" (mailx-rule-id rule))))
+
+(defun mailx-review-view ()
+  "Show the raw message file at point."
+  (interactive)
+  (view-file-other-window (mailx-review--entry-id (mailx-review--entry-at-point))))
+
+;;; Mode
+
+(defvar-keymap mailx-review-mode-map
+  :doc "Keymap for `mailx-review-mode'."
+  :parent tabulated-list-mode-map
+  "n" #'next-line
+  "p" #'previous-line
+  "a" #'mailx-review-accept
+  "s" #'mailx-review-skip
+  "*" #'mailx-review-accept-all
+  "t" #'mailx-review-set-tier
+  "f" #'mailx-review-set-folder
+  "l" #'mailx-review-set-tags
+  "r" #'mailx-review-promote
+  "x" #'mailx-review-apply
+  "v" #'mailx-review-view)
+
+(define-derived-mode mailx-review-mode tabulated-list-mode "Mailx-Review"
+  "Major mode for reviewing proposed mail classifications.
+Nothing is moved from this buffer; accepted entries become a hitl plan."
+  (setq tabulated-list-format [("State" 8 t)
+                               ("Tier" 8 t)
+                               ("Folder" 18 t)
+                               ("Tags" 16 nil)
+                               ("Source" 14 t)
+                               ("From" 26 t)
+                               ("Subject" 0 t)])
+  (setq tabulated-list-padding 1)
+  (tabulated-list-init-header)
+  (setq-local revert-buffer-function #'mailx-review--revert))
+
+;;;###autoload
+(defun mailx-review (&optional root)
+  "Review proposed classifications for unclassified mail under ROOT.
+ROOT defaults to the active maildir.  No message is changed."
+  (interactive)
+  (let* ((root (file-name-as-directory (expand-file-name (or root (mailx-current-maildir)))))
+         (buffer (get-buffer-create (format "*mailx-review: %s*" (abbreviate-file-name root)))))
+    (with-current-buffer buffer
+      (mailx-review-mode)
+      (setq mailx-review--root root)
+      (mailx-review--load))
+    (pop-to-buffer buffer)))
+
+(provide 'mailx-review)
+;;; mailx-review.el ends here
