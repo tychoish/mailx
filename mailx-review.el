@@ -126,13 +126,25 @@ the proposal came from."
   (setq tabulated-list-entries (seq-map #'mailx-review--row mailx-review--entries))
   (tabulated-list-print t))
 
+(defconst mailx-review--stale-hint
+  "run `mu4e-update-index' and press g to reload"
+  "What to do when the mu index lists files that no longer exist.")
+
 (defun mailx-review--load ()
-  "Classify unclassified mail without changing it and fill the buffer."
-  (let ((result (mailx-classify-batch mailx-review--root
-                                      (list :dry-run t :limit mailx-review-limit))))
+  "Classify unclassified mail without changing it and fill the buffer.
+Messages whose file is gone (the mu index is stale) are dropped and counted."
+  (let* ((result (mailx-classify-batch mailx-review--root
+                                       (list :dry-run t :limit mailx-review-limit)))
+         (stale 0)
+         (live (lambda (message)
+                 (or (file-exists-p (map-elt message :path))
+                     (progn (setq stale (1+ stale)) nil)))))
     (setq mailx-review--entries
-          (append (seq-map #'mailx-review--result-entry (map-elt result :results))
-                  (seq-map #'mailx-review--unresolved-entry (map-elt result :unresolved))))
+          (append (seq-map #'mailx-review--result-entry
+                           (seq-filter (lambda (res) (funcall live (map-elt res :message)))
+                                       (map-elt result :results)))
+                  (seq-map #'mailx-review--unresolved-entry
+                           (seq-filter live (map-elt result :unresolved)))))
     (mailx-review--render)
     (let ((correspondents (map-elt result :correspondents)))
       (setq mailx-review--notices
@@ -145,6 +157,10 @@ the proposal came from."
                     ((eq (car-safe correspondents) 'error)
                      (cons "correspondents failed"
                            (format "Refreshing correspondents failed: %s" (cdr correspondents)))))
+                   (when (> stale 0)
+                     (cons (format "%d stale" stale)
+                           (format "Dropped %d messages whose files no longer exist; %s"
+                                   stale mailx-review--stale-hint)))
                    (when (map-elt result :truncated)
                      (cons (format "first %d" (length mailx-review--entries))
                            (format "Showing the first %d messages and more may remain; raise `mailx-review-limit' or press g after applying"
@@ -307,6 +323,8 @@ Entries sharing a tier, folder and tags share one `classify' operation."
     (let ((plan (mailx-review-create-plan accepted mailx-review--root)))
       (seq-do (lambda (entry) (map-put! entry :status 'planned)) accepted)
       (mailx-review--render)
+      (unless (mailx-bulk--mu4e-active-p mailx-review--root)
+        (message "Applying moves files directly; afterwards %s" mailx-review--stale-hint))
       (hitl-plan-review plan))))
 
 (defun mailx-review-promote-entry (entry root)
@@ -349,7 +367,10 @@ whole domain, so the confirmation shows how many messages it would catch."
 (defun mailx-review-view ()
   "Show the raw message file at point."
   (interactive)
-  (view-file-other-window (mailx-review--entry-id (mailx-review--entry-at-point))))
+  (let ((path (mailx-review--entry-id (mailx-review--entry-at-point))))
+    (unless (file-exists-p path)
+      (user-error "File is gone and the mu index may be stale; %s" mailx-review--stale-hint))
+    (view-file-other-window path)))
 
 ;;; Mode
 

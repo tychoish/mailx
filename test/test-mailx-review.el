@@ -9,18 +9,29 @@
 (require 'cl-lib)
 (require 'mailx-review)
 
+(defconst test-mailx-review--dir
+  (let ((dir (make-temp-file "mailx-review-" t)))
+    (write-region "" nil (expand-file-name "a" dir))
+    (write-region "" nil (expand-file-name "b" dir))
+    dir)
+  "Directory holding the real files behind the canned messages.")
+
+(defun test-mailx-review--path (name)
+  "Return the path of canned message file NAME."
+  (expand-file-name name test-mailx-review--dir))
+
 (defconst test-mailx-review--hit
-  '(:subject "hi" :path "/fake/a" :message-id "a@example.org"
+  `(:subject "hi" :path ,(test-mailx-review--path "a") :message-id "a@example.org"
     :from (("A" . "a@example.org")) :maildir "/inbox"))
 
 (defconst test-mailx-review--miss
-  '(:subject "other" :path "/fake/b" :message-id "b@example.org"
+  `(:subject "other" :path ,(test-mailx-review--path "b") :message-id "b@example.org"
     :from (("B" . "b@example.org")) :maildir "/inbox"))
 
 (defun test-mailx-review--batch (&rest _)
   "Return a canned `mailx-classify-batch' result."
   (let ((rule (make-mailx-rule :id 'r1 :match '(:subject "hi") :folder "/archive" :tier 'read)))
-    (list :results (list (list :path "/fake/a" :folder "/archive" :tier 'read :tags '("x")
+    (list :results (list (list :path (test-mailx-review--path "a") :folder "/archive" :tier 'read :tags '("x")
                                :classification (list :rule rule)
                                :message test-mailx-review--hit))
           :unresolved (list test-mailx-review--miss))))
@@ -129,6 +140,53 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
   (should (string-match-p "mailx-review-accept"
                           (substitute-command-keys (documentation 'mailx-review-mode t))))
   (should (eq (lookup-key mailx-review-mode-map "?") 'describe-mode)))
+
+(defmacro test-mailx-review--without-files (names &rest body)
+  "Run BODY with the canned message files NAMES deleted, then restore them."
+  (declare (indent 1))
+  `(unwind-protect
+       (progn
+         (seq-do (lambda (name) (delete-file (test-mailx-review--path name))) ,names)
+         ,@body)
+     (seq-do (lambda (name) (write-region "" nil (test-mailx-review--path name))) ,names)))
+
+(ert-deftest mailx-review-load-drops-stale-rows-with-an-index-hint ()
+  (test-mailx-review--without-files '("b")
+    (let ((state (test-mailx-review--load-with nil)))
+      (should (string-match-p "mu4e-update-index" (string-join (caddr state) "\n")))
+      (should (string-match-p "Dropped 1 " (string-join (caddr state) "\n")))))
+  (test-mailx-review--without-files '("a" "b")
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'mailx-classify-batch) #'test-mailx-review--batch)
+                ((symbol-function 'message) #'ignore))
+        (mailx-review-mode)
+        (mailx-review--load)
+        (should-not mailx-review--entries)))))
+
+(ert-deftest mailx-review-view-of-a-missing-file-is-a-user-error ()
+  (test-mailx-review--with-buffer
+    (forward-line 1)
+    (test-mailx-review--without-files '("b")
+      (let ((err (should-error (mailx-review-view) :type 'user-error)))
+        (should (string-match-p "mu4e-update-index" (error-message-string err)))))))
+
+(ert-deftest mailx-review-apply-reminds-to-update-the-index-only-for-the-fallback ()
+  (seq-do
+   (lambda (active)
+     (test-mailx-review--with-buffer
+       (let ((messages nil))
+         (mailx-review-mark (list (car mailx-review--entries)) 'accepted)
+         (cl-letf (((symbol-function 'mailx-review-create-plan) (lambda (&rest _) 'plan))
+                   ((symbol-function 'mailx-bulk--mu4e-active-p) (lambda (_root) active))
+                   ((symbol-function 'hitl-plan-review) #'ignore)
+                   ((symbol-function 'message)
+                    (lambda (format-string &rest args)
+                      (push (apply #'format format-string args) messages))))
+           (mailx-review-apply))
+         (should (eq (and (seq-some (lambda (m) (string-match-p "mu4e-update-index" m)) messages)
+                          t)
+                     (not active))))))
+   '(nil t)))
 
 (ert-deftest mailx-review-load-lists-proposals-and-unresolved ()
   (test-mailx-review--with-buffer
@@ -334,7 +392,7 @@ Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
   (test-mailx-review--with-buffer
     (mailx-review-accept)
     (should (eq (map-elt (car mailx-review--entries) :status) 'accepted))
-    (should (equal (tabulated-list-get-id) "/fake/b"))
+    (should (equal (tabulated-list-get-id) (test-mailx-review--path "b")))
     (mailx-review-skip)
     (should (eq (map-elt (cadr mailx-review--entries) :status) 'skipped))))
 

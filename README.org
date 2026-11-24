@@ -164,7 +164,7 @@ Run ~M-x mailx-review~, or pick /review classifications/ from the mu4e actions m
 | ~v~ | View the raw message file. |
 | ~g~ | Reclassify (asks first if that would discard decisions). |
 
-Exclusive Maildir access is asserted only when the hitl plan is applied, so stop mail delivery and sync clients before applying it.
+Exclusive Maildir access is asserted only when the hitl plan is applied, so stop mail delivery and sync clients before applying it.  With a running mu4e server for the root, applying goes through it and keeps the index current; otherwise files are moved directly and applying reminds you to run ~mu4e-update-index~ and press ~g~.  Messages whose files have disappeared (a stale index) are dropped on load, counted in the mode line as ~[N stale]~.
 
 Set ~mailx-sent-query~ to a mu query matching mail you sent.  Batch classification then keeps the correspondent cache fresh (see ~mailx-correspondents-max-age-days~) so mail from people you write to is proposed as ~reply~.  Without it, the cache is not refreshed and the review mode line shows ~[no sent query]~ and a message names the variable; a failed refresh shows ~[correspondents failed]~ with the error.  When the batch hit ~mailx-review-limit~ the mode line shows ~[first N]~: more messages may remain, so raise the limit or press ~g~ after applying.  Oldest mail comes first, since ~mu find~ sorts by date ascending unless told otherwise.
 
