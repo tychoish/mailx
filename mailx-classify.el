@@ -531,7 +531,9 @@ OPTIONS is an optional plist supporting:
   :coordination - must be `exclusive-access' to perform mutations
   :update-index - if non-nil, run mu index --lazy-check after moving files
 Return a summary plist (:processed N :classified M :moved K :errors LIST
-:correspondents STATUS :unresolved MESSAGES :results LIST).  :errors holds
+:correspondents STATUS :truncated BOOL :unresolved MESSAGES :results LIST).
+:truncated is non-nil when as many messages were fetched as :limit allows,
+so more may remain.  :errors holds
 \(PATH . MESSAGE) for each failed move, :unresolved the messages no stage
 classified, and :correspondents the cache refresh outcome.
 The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
@@ -590,6 +592,7 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
                     "--lazy-check"))
     (list :processed processed :classified classified :moved moved
           :errors (nreverse errors) :correspondents correspondents
+          :truncated (= total limit)
           :unresolved (nreverse unresolved)
           :results (nreverse results))))
 

@@ -45,6 +45,10 @@
 (defvar-local mailx-review--root nil
   "Mail root whose proposals the current review buffer shows.")
 
+(defvar-local mailx-review--notices nil
+  "Load notices for the current review buffer, a list of (SHORT . LONG).
+SHORT appears in the mode line, LONG is messaged once when loading.")
+
 (defvar-local mailx-review--entries nil
   "Review entries, in display order.
 Each entry is a plist with :message :tier :folder :tags :source :status.
@@ -130,6 +134,27 @@ the proposal came from."
           (append (seq-map #'mailx-review--result-entry (map-elt result :results))
                   (seq-map #'mailx-review--unresolved-entry (map-elt result :unresolved))))
     (mailx-review--render)
+    (let ((correspondents (map-elt result :correspondents)))
+      (setq mailx-review--notices
+            (delq nil
+                  (list
+                   (cond
+                    ((eq correspondents 'skipped-no-sent-query)
+                     (cons "no sent query"
+                           "mailx-sent-query is unset, so known correspondents are not detected and nothing is proposed as reply; set it to a mu query matching mail you sent"))
+                    ((eq (car-safe correspondents) 'error)
+                     (cons "correspondents failed"
+                           (format "Refreshing correspondents failed: %s" (cdr correspondents)))))
+                   (when (map-elt result :truncated)
+                     (cons (format "first %d" (length mailx-review--entries))
+                           (format "Showing the first %d messages and more may remain; raise `mailx-review-limit' or press g after applying"
+                                   (length mailx-review--entries))))))))
+    (setq mode-line-process
+          (when mailx-review--notices
+            (format " [%s]" (string-join (seq-map #'car mailx-review--notices) "; "))))
+    (force-mode-line-update)
+    (when mailx-review--notices
+      (message "mailx: %s" (string-join (seq-map #'cdr mailx-review--notices) "; ")))
     result))
 
 (defun mailx-review--revert (&optional _ignore-auto _noconfirm)

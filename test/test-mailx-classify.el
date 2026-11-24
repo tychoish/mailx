@@ -231,6 +231,18 @@
                                       (cdr (car (map-elt res :errors))))))))
       (delete-directory root t))))
 
+(ert-deftest mailx-classify-batch-flags-truncation-at-the-limit ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (messages (seq-map (lambda (n) (list :subject (format "m%d" n) :path "/none" :maildir "/inbox"))
+                            '(1 2 3))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find)
+                   (lambda (_root _query &optional limit) (seq-take messages limit))))
+          (should (map-elt (mailx-classify-batch root '(:dry-run t :limit 3)) :truncated))
+          (should (map-elt (mailx-classify-batch root '(:dry-run t :limit 2)) :truncated))
+          (should-not (map-elt (mailx-classify-batch root '(:dry-run t :limit 4)) :truncated)))
+      (delete-directory root t))))
+
 (ert-deftest mailx-classify-batch-refreshes-stale-correspondents ()
   (let* ((root (make-temp-file "mailx-batch-" t))
          (mailx-sent-query "from:me")

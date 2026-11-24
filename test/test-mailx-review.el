@@ -36,6 +36,48 @@
        (goto-char (point-min))
        ,@body)))
 
+(defun test-mailx-review--load-with (extra)
+  "Load a review buffer whose batch result also has EXTRA keys.
+Return (NOTICES MODE-LINE MESSAGES) for the loaded buffer."
+  (let ((messages nil))
+    (with-temp-buffer
+      (cl-letf (((symbol-function 'mailx-classify-batch)
+                 (lambda (&rest args) (append (apply #'test-mailx-review--batch args) extra)))
+                ((symbol-function 'message)
+                 (lambda (format-string &rest args)
+                   (push (apply #'format format-string args) messages))))
+        (mailx-review-mode)
+        (setq mailx-review--root "/tmp/mail/")
+        (mailx-review--load))
+      (list mailx-review--notices mode-line-process (nreverse messages)))))
+
+(ert-deftest mailx-review-warns-when-sent-query-is-unset ()
+  (let ((state (test-mailx-review--load-with '(:correspondents skipped-no-sent-query))))
+    (should (car state))
+    (should (stringp (cadr state)))
+    (should (string-match-p "mailx-sent-query" (string-join (caddr state) "\n")))
+    (should (string-match-p "mu query" (string-join (caddr state) "\n")))))
+
+(ert-deftest mailx-review-reports-correspondent-refresh-errors ()
+  (let ((state (test-mailx-review--load-with '(:correspondents (error . "mu exploded")))))
+    (should (car state))
+    (should (string-match-p "mu exploded" (string-join (caddr state) "\n")))))
+
+(ert-deftest mailx-review-says-nothing-when-correspondents-are-current ()
+  (seq-do (lambda (status)
+            (let ((state (test-mailx-review--load-with (list :correspondents status))))
+              (should-not (car state))
+              (should-not (cadr state))
+              (should-not (caddr state))))
+          '(fresh refreshed)))
+
+(ert-deftest mailx-review-notices-truncation-only-when-truncated ()
+  (let ((state (test-mailx-review--load-with '(:truncated t))))
+    (should (car state))
+    (should (string-match-p "mailx-review-limit" (string-join (caddr state) "\n")))
+    (should (string-match-p "first 2" (string-join (caddr state) "\n"))))
+  (should-not (car (test-mailx-review--load-with '(:truncated nil)))))
+
 (ert-deftest mailx-review-load-lists-proposals-and-unresolved ()
   (test-mailx-review--with-buffer
     (should (= (length mailx-review--entries) 2))
