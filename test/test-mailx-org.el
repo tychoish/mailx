@@ -115,26 +115,5 @@
       (should stored-link)
       (should (equal captured-key "t")))))
 
-(ert-deftest mailx-org-sync-and-classify-async-skips-on-error ()
-  (let ((classified nil) (finished nil)
-        (fake-proc (make-pipe-process :name "fake" :buffer (generate-new-buffer " *fake*"))))
-    (unwind-protect
-        (cl-letf (((symbol-function 'make-process)
-                   (lambda (&rest args)
-                     (let ((sentinel (plist-get args :sentinel)))
-                       (cl-letf (((symbol-function 'process-status) (lambda (&rest _) 'exit))
-                                 ((symbol-function 'process-exit-status) (lambda (&rest _) 1)))
-                         (funcall sentinel fake-proc "exited abnormally with code 1\n"))
-                       fake-proc)))
-                  ((symbol-function 'mailx-classify-batch)
-                   (lambda (&rest _) (setq classified t))))
-          (mailx-sync-and-classify-async "/tmp" "false" (lambda (_p _ev) (setq finished t)))
-          (should finished)
-          (should-not classified))
-      (set-process-query-on-exit-flag fake-proc nil)
-      (delete-process fake-proc)
-      (when (buffer-live-p (process-buffer fake-proc))
-        (kill-buffer (process-buffer fake-proc))))))
-
 (provide 'test-mailx-org)
 ;;; test-mailx-org.el ends here

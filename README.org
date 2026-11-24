@@ -161,7 +161,6 @@ From a headers buffer, run ~M-x mailx-bulk-stage-current-view~ to snapshot the v
 | ~mailx-jump-to-tier~ | Annotated prompt to jump to attention tiers with unread counts. |
 | ~mailx-bulk-stage-current-view~ | Stage visible messages into a Human-in-the-Loop triage plan. |
 | ~mailx-capture-task~ | Capture an Org task and automatically refile upon completion. |
-| ~mailx-sync-and-classify-async~ | Background process runner for mail fetch and classification. |
 | ~mailx-mcp-register~ | Register MCP service and inspection tools. |
 
 * License
