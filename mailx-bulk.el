@@ -96,6 +96,14 @@ stored path alone: Maildir files can be renamed or replaced after staging."
         (when (= (length matches) 1)
           (append (car matches) (list :root root :context (map-elt target :context))))))))
 
+(defun mailx-bulk--require-resolved (target)
+  "Resolve TARGET like `mailx-bulk--resolve-target', or signal an error.
+Apply functions use this so hitl marks the step failed instead of done when
+the message changed or vanished after the plan was reviewed."
+  (or (mailx-bulk--resolve-target target)
+      (error "Mail target no longer resolves: %s"
+             (or (map-elt target :subject) (map-elt target :message-id) "unknown message"))))
+
 (defun mailx-bulk--format-target (target)
   "Return display columns for TARGET."
   (cons (or (map-elt target :context) "")
@@ -219,7 +227,7 @@ differs, waiting until the server reports the new folder and tier tag."
 (defun mailx-bulk--mark-read-apply ()
   "Apply mark-read to the current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (path (map-elt resolved :path))
               ((file-exists-p path)))
     (if (mailx-bulk--mu4e-active-p (map-elt target :root))
@@ -267,7 +275,7 @@ Never overwrites an existing destination file."
   (mailx-bulk-check-folder folder)
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (path (map-elt resolved :path))
               ((file-exists-p path)))
     (if (mailx-bulk--mu4e-active-p root)
@@ -281,7 +289,7 @@ Never overwrites an existing destination file."
   "Apply TIER and TAGS on the current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (path (map-elt resolved :path))
               (folder (or (map-elt resolved :maildir) (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive"))))
     (if (mailx-bulk--mu4e-active-p root)
@@ -295,7 +303,7 @@ Otherwise applying an approved plan is where exclusive Maildir access is
 asserted; the reviewer is expected to have stopped other writers."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (path (map-elt resolved :path)))
     (if (mailx-bulk--mu4e-active-p root)
         (mailx-bulk--mu4e-classify resolved tier tags folder)
@@ -305,7 +313,7 @@ asserted; the reviewer is expected to have stopped other writers."
   "Record unsubscribed sender from current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (sender (car (mailx--sender-addresses (map-elt resolved :from))))
               (file (expand-file-name mailx-unsubscribed-filename root)))
     (make-directory (file-name-directory file) t)
@@ -322,7 +330,7 @@ asserted; the reviewer is expected to have stopped other writers."
   "Create an exact-address junk rule (once) and trash the current target."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (sender (car (mailx--sender-addresses (map-elt resolved :from)))))
     (let* ((rules (mailx-rules-load root))
            (rule-id (intern (format "block-%s" (replace-regexp-in-string "[^[:alnum:]]" "-" sender))))
@@ -344,7 +352,7 @@ asserted; the reviewer is expected to have stopped other writers."
 (defun mailx-bulk--expire-apply (days)
   "Expire message if older than DAYS."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
-              (resolved (mailx-bulk--resolve-target target))
+              (resolved (mailx-bulk--require-resolved target))
               (path (map-elt resolved :path))
               ((file-exists-p path)))
     (let* ((mtime (file-attribute-modification-time (file-attributes path)))
@@ -355,9 +363,8 @@ asserted; the reviewer is expected to have stopped other writers."
 (defun mailx-bulk--promote-rule-apply (rule)
   "Persist proposed RULE into active root."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
-              (root (map-elt target :root))
-              (rules (mailx-rules-load root)))
-    (mailx-rules-save root (append rules (list rule)))))
+              (root (map-elt target :root)))
+    (mailx-rules-save root (append (mailx-rules-load root) (list rule)))))
 
 (defun mailx-bulk--register-ops ()
   "Register bulk triage operations under the `mailx' domain."
