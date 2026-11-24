@@ -332,5 +332,54 @@
   (let ((mailx-mcp-unclassified-query "q2"))
     (should (equal mailx-unclassified-query "q2"))))
 
+(ert-deftest mailx-classify-batch-loads-correspondents-once ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (loads 0)
+         (messages (seq-map (lambda (n) (list :subject (format "m%d" n) :path "/fake" :maildir "/i"))
+                            (number-sequence 1 5))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) messages))
+                  ((symbol-function 'mailx-load-correspondents)
+                   (lambda (_root) (setq loads (1+ loads)) nil))
+                  ((symbol-function 'message) (lambda (&rest _) nil)))
+          (mailx-classify-batch root '(:dry-run t))
+          (should (= loads 1)))
+      (delete-directory root t))))
+
+(ert-deftest mailx-classify-message-correspondents-option ()
+  (let ((loads 0)
+        (root (make-temp-file "mailx-msg-" t))
+        (res :unset))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx-load-correspondents)
+                   (lambda (_root) (setq loads (1+ loads)) '("a@example.org")))
+                  ((symbol-function 'mailx--mu-find) (lambda (&rest _) nil)))
+          (mailx-classify-message '(:from "a@example.org") nil
+                                  (lambda (r) (setq res r))
+                                  (list :root root :correspondents '("a@example.org")))
+          (should (= loads 0))
+          (should (eq 'reply (map-elt res :tier)))
+          (mailx-classify-message '(:from "a@example.org") nil
+                                  (lambda (r) (setq res r))
+                                  (list :root root))
+          (should (= loads 1))
+          (should (eq 'reply (map-elt res :tier))))
+      (delete-directory root t))))
+
+(ert-deftest mailx-classify-batch-reports-progress ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (logged nil)
+         (messages (seq-map (lambda (n) (list :subject (format "m%d" n) :path "/fake" :maildir "/i"))
+                            (number-sequence 1 12))))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) messages))
+                  ((symbol-function 'message)
+                   (lambda (fmt &rest args) (push (apply #'format fmt args) logged))))
+          (mailx-classify-batch root '(:dry-run t))
+          (should (member "mailx: classifying 10/12" logged))
+          (should-not (member "mailx: classifying 5/12" logged))
+          (should (seq-find (lambda (m) (string-match-p "mailx: classified 0 of 12" m)) logged)))
+      (delete-directory root t))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here

@@ -310,13 +310,17 @@ one classification plist or an :error plist.  No result is persisted."
 (defun mailx-classify-message (message rules callback &optional options)
   "Classify MESSAGE with RULES and deliver a result to CALLBACK.
 OPTIONS is a plist: :root selects a mu database and correspondent cache,
-:sent-query identifies sent messages, :unsubscribed supplies sender addresses,
+:sent-query identifies sent messages, :correspondents supplies the known
+correspondent addresses (loaded from :root when absent), :unsubscribed
+supplies sender addresses,
 and :gptel-backend explicitly selects a backend for unresolved messages.
 Without :gptel-backend an unresolved result is nil.  No message is changed."
   (unless (functionp callback) (error "Callback must be a function"))
   (let* ((root (map-elt options :root))
          (sent-query (map-elt options :sent-query))
-         (correspondents (when root (mailx-load-correspondents root)))
+         (correspondents (if (plist-member options :correspondents)
+                             (map-elt options :correspondents)
+                           (when root (mailx-load-correspondents root))))
          (unsubscribed (map-elt options :unsubscribed))
          (rule (mailx-classify-by-rules message rules))
          (sender (mailx--sender-addresses (map-elt message :from)))
@@ -489,6 +493,8 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
          (correspondents (mailx--refresh-correspondents-if-stale root sent-query))
          (rules (mailx-rules-load root))
          (messages (mailx--mu-find root query limit))
+         (known (mailx-load-correspondents root))
+         (total (length messages))
          (processed 0)
          (classified 0)
          (moved 0)
@@ -498,12 +504,14 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
     (seq-do
      (lambda (msg)
        (setq processed (1+ processed))
+       (when (zerop (% processed 10))
+         (message "mailx: classifying %d/%d" processed total))
        (let ((res nil))
          (mailx-classify-message
           msg rules
           (lambda (classification)
             (setq res (and (map-elt classification :tier) classification)))
-          (list :root root :sent-query sent-query))
+          (list :root root :sent-query sent-query :correspondents known))
          (unless res (push msg unresolved))
          (when res
            (setq classified (1+ classified))
@@ -521,6 +529,8 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
                      (setq moved (1+ moved)))
                  (error (push (cons path (error-message-string err)) errors))))))))
      messages)
+    (message "mailx: classified %d of %d (%d moved, %d errors)"
+             classified processed moved (length errors))
     (when (and (not dry-run) (> moved 0) (map-elt options :update-index)
                (executable-find "mu"))
       (process-file "mu" nil nil nil "index"
