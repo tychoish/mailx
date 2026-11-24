@@ -147,5 +147,36 @@
           (should (= 2 (length (car moves)))))
       (delete-directory root t))))
 
+(ert-deftest mailx-bulk-check-folder-validates ()
+  (seq-do (lambda (bad)
+            (should-error (mailx-bulk-check-folder bad) :type 'user-error))
+          (list "/../escaped" "/a/../b" "//abs" "" "/a//b" "no-slash"
+                "/a\nb" "/a\0b" nil 5))
+  (should (equal "/archive/sub" (mailx-bulk-check-folder "/archive/sub"))))
+
+(ert-deftest mailx-bulk-refile-rejects-escape-and-never-overwrites ()
+  (let* ((top (make-temp-file "mailx-bulk-" t))
+         (root (expand-file-name "root" top))
+         (src (expand-file-name "inbox/cur/m1" root))
+         (hitl-plan-current-target (list :root root :message-id "a@b")))
+    (unwind-protect
+        (progn
+          (make-directory (file-name-directory src) t)
+          (write-region "new" nil src nil 'silent)
+          (cl-letf (((symbol-function 'mailx-bulk--resolve-target)
+                     (lambda (_target) (list :path src))))
+            (should-error (mailx-bulk--refile-apply "/../escaped") :type 'user-error)
+            (should-not (file-exists-p (expand-file-name "escaped" top)))
+            (make-directory (expand-file-name "dest/cur" root) t)
+            (write-region "old" nil (expand-file-name "dest/cur/m1" root) nil 'silent)
+            (should-error (mailx-bulk--refile-apply "/dest"))
+            (should (equal "old" (with-temp-buffer
+                                   (insert-file-contents (expand-file-name "dest/cur/m1" root))
+                                   (buffer-string))))
+            (should (file-exists-p src))
+            (mailx-bulk--refile-apply "/archive/sub")
+            (should (file-exists-p (expand-file-name "archive/sub/cur/m1" root)))))
+      (delete-directory top t))))
+
 (provide 'test-mailx-bulk)
 ;;; test-mailx-bulk.el ends here

@@ -127,8 +127,25 @@ stored path alone: Maildir files can be renamed or replaced after staging."
           (make-directory cur-dir t)
           (rename-file path new-path t)))))))
 
+(defun mailx-bulk-check-folder (folder)
+  "Return FOLDER if it is a safe Maildir folder name, else signal `user-error'.
+FOLDER must be a non-empty string with a leading slash, no control
+characters, and no empty or `..' components."
+  (unless (and (stringp folder) (not (string-empty-p folder)))
+    (user-error "Folder must be a non-empty string"))
+  (unless (string-prefix-p "/" folder)
+    (user-error "Folder %S must start with /" folder))
+  (when (string-match-p "[[:cntrl:]]" folder)
+    (user-error "Folder %S contains control characters" folder))
+  (when (seq-some (lambda (part) (member part '("" "..")))
+                  (cdr (split-string (string-remove-suffix "/" folder) "/")))
+    (user-error "Folder %S has an empty or .. component" folder))
+  folder)
+
 (defun mailx-bulk--refile-apply (folder)
-  "Apply refile to FOLDER on the current target."
+  "Apply refile to FOLDER on the current target.
+Never overwrites an existing destination file."
+  (mailx-bulk-check-folder folder)
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root))
               (resolved (mailx-bulk--resolve-target target))
@@ -137,7 +154,7 @@ stored path alone: Maildir files can be renamed or replaced after staging."
     (let* ((dest-dir (expand-file-name (concat (string-remove-prefix "/" folder) "/cur") root))
            (new-path (expand-file-name (file-name-nondirectory path) dest-dir)))
       (make-directory dest-dir t)
-      (rename-file path new-path t))))
+      (rename-file path new-path nil))))
 
 (defun mailx-bulk--tag-apply (tier tags)
   "Apply TIER and TAGS on the current target."
@@ -224,7 +241,8 @@ the reviewer is expected to have stopped other writers."
     :describe (lambda () "Mark read"))
   (hitl-plan-register-op 'mailx 'refile
     :key ?m :label "Refile"
-    :read-args (lambda () (list (read-string "Destination folder: " (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive"))))
+    :read-args (lambda () (list (mailx-bulk-check-folder
+                                 (read-string "Destination folder: " (if (boundp 'mailx-archive-folder) mailx-archive-folder "/archive")))))
     :apply #'mailx-bulk--refile-apply
     :describe (lambda (f) (format "Refile to %s" f)))
   (hitl-plan-register-op 'mailx 'tag
