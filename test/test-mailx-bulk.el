@@ -178,5 +178,46 @@
             (should (file-exists-p (expand-file-name "archive/sub/cur/m1" root)))))
       (delete-directory top t))))
 
+(ert-deftest mailx-bulk-resolves-ids-with-formerly-rejected-characters ()
+  (let* ((root (make-temp-file "mailx-bulk-" t))
+         (path (expand-file-name "m" root))
+         (queries nil))
+    (unwind-protect
+        (progn
+          (write-region "x" nil path nil 'silent)
+          (seq-do
+           (lambda (id)
+             (cl-letf (((symbol-function 'mailx--mu-find)
+                        (lambda (_root query) (push query queries)
+                          (list (list :message-id id :path path)))))
+               (should (mailx-bulk-message-id-valid-p id))
+               (should (mailx-bulk--resolve-target
+                        (list :root root :message-id id)))))
+           (list "a/b$c@x" "a!b#c&d~e'f@x" "q\"uote@x" "back\\slash@x"))
+          (should (equal (car queries) "msgid:\"back\\\\slash@x\""))
+          (should (member "msgid:\"q\\\"uote@x\"" queries))
+          (should (member "msgid:\"a/b$c@x\"" queries)))
+      (delete-directory root t))))
+
+(ert-deftest mailx-bulk-message-id-validity-and-ambiguity ()
+  (should-not (mailx-bulk-message-id-valid-p "a\nb@x"))
+  (should-not (mailx-bulk-message-id-valid-p "a\0b@x"))
+  (should-not (mailx-bulk-message-id-valid-p ""))
+  (should-not (mailx-bulk-message-id-valid-p nil))
+  (should-not (mailx-bulk-message-id-valid-p "x OR y"))
+  (let* ((root (make-temp-file "mailx-bulk-" t))
+         (path (expand-file-name "m" root))
+         (msg (list :message-id "a/b@x" :path path)))
+    (unwind-protect
+        (progn
+          (write-region "x" nil path nil 'silent)
+          (cl-letf (((symbol-function 'mailx--mu-find)
+                     (lambda (&rest _) (list msg msg))))
+            (should-not (mailx-bulk--resolve-target
+                         (list :root root :message-id "a/b@x")))))
+      (delete-directory root t)))
+  (mailx-bulk-setup)
+  (should (hitl-plan-domain-unresolved-message (hitl-plan-get-domain 'mailx))))
+
 (provide 'test-mailx-bulk)
 ;;; test-mailx-bulk.el ends here

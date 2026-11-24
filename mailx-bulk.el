@@ -54,17 +54,25 @@
 (defvar mailx-archive-folder)
 (defvar mailx-trash-folder)
 
+(defun mailx-bulk-message-id-valid-p (id)
+  "Return non-nil if ID can be safely quoted into a mu msgid: query.
+ID must be a non-empty string without control characters or whitespace."
+  (and (stringp id)
+       (not (string-empty-p id))
+       (not (string-match-p "[[:cntrl:][:space:]]" id))))
+
+(defun mailx-bulk--msgid-query (id)
+  "Return a mu query matching Message-ID ID exactly, quoted for mu."
+  (format "msgid:\"%s\"" (replace-regexp-in-string "[\\\"]" "\\\\\\&" id)))
+
 (defun mailx-bulk--resolve-target (target)
   "Resolve TARGET by its :root and :message-id, or return nil.
 Only a single exact Message-ID match inside ROOT is accepted.  Never trust a
 stored path alone: Maildir files can be renamed or replaced after staging."
   (let ((root (map-elt target :root))
         (id (map-elt target :message-id)))
-    ;; Query syntax characters are not accepted; this is deliberately more
-    ;; restrictive than RFC Message-ID syntax to prevent query injection.
     (when (and (stringp root) (file-directory-p root)
-               (stringp id)
-               (string-match-p "\\`[[:alnum:]@._+%=-]+\\'" id))
+               (mailx-bulk-message-id-valid-p id))
       (let ((matches (seq-filter
                       (lambda (message)
                         (and (equal id (map-elt message :message-id))
@@ -72,7 +80,7 @@ stored path alone: Maildir files can be renamed or replaced after staging."
                              (file-regular-p (map-elt message :path))
                              (file-in-directory-p (file-truename (map-elt message :path))
                                                   (file-truename root))))
-                      (mailx--mu-find root (concat "msgid:" id)))))
+                      (mailx--mu-find root (mailx-bulk--msgid-query id)))))
         (when (= (length matches) 1)
           (append (car matches) (list :root root :context (map-elt target :context))))))))
 
@@ -286,7 +294,9 @@ the reviewer is expected to have stopped other writers."
                   :resolve-target #'mailx-bulk--resolve-target
                   :format-target #'mailx-bulk--format-target
                   :visit-target #'mailx-bulk--visit-target
-                  :directory #'mailx-bulk-plan-directory)))
+                  :directory #'mailx-bulk-plan-directory
+                  :unresolved-message
+                  "Unsupported, missing or ambiguous Message-ID: target no longer resolves")))
     (mailx-bulk--register-ops)
     domain))
 
