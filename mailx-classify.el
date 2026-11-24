@@ -27,6 +27,18 @@
   :group 'mailx
   :prefix "mailx-")
 
+(defcustom mailx-unclassified-query
+  "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"
+  "Mu query selecting unclassified messages.
+Governs the Unclassified bookmark, `mailx-classify-batch', the review
+buffer and the MCP unclassified listing.  Restrict it to staging folders
+if desired."
+  :type 'string
+  :group 'mailx-classify)
+
+(defvaralias 'mailx-views-unclassified-query 'mailx-unclassified-query)
+(defvaralias 'mailx-mcp-unclassified-query 'mailx-unclassified-query)
+
 (defcustom mailx-correspondents-filename "tools/mailx-correspondents.eld"
   "Path relative to mail root for correspondent address cache."
   :type 'string
@@ -472,7 +484,7 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
          (coordination (map-elt options :coordination))
          (limit (or (map-elt options :limit) 100))
          (query (or (map-elt options :query)
-                    "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"))
+                    mailx-unclassified-query))
          (sent-query (or (map-elt options :sent-query) mailx-sent-query))
          (correspondents (mailx--refresh-correspondents-if-stale root sent-query))
          (rules (mailx-rules-load root))

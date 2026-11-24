@@ -14,7 +14,7 @@
 (defvar mu4e-headers-custom-markers)
 
 (ert-deftest mailx-views-bookmarks-are-configurable-and-unique ()
-  (let* ((mailx-views-unclassified-query "maildir:/staging")
+  (let* ((mailx-unclassified-query "maildir:/staging")
          (mailx-views-records-query "tag:record")
          (bookmarks (mailx-views-bookmarks))
          (keys (seq-map (lambda (b) (plist-get b :key)) bookmarks)))

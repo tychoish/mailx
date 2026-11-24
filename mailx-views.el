@@ -18,6 +18,7 @@
 (require 'seq)
 (require 'subr-x)
 (require 'mailx-server)
+(require 'mailx-classify)
 
 (declare-function annotated-completing-read "annotated-completing-read")
 (declare-function mu4e-message-field "mu4e-message")
@@ -37,11 +38,6 @@
     (cursory "Cursory review" ?3) (bulk "Bulk" ?4) (junk "Junk" ?5))
   "Tier symbols, display names and bookmark keys.")
 
-(defcustom mailx-views-unclassified-query
-  "NOT (tag:\"tier:reply\" OR tag:\"tier:read\" OR tag:\"tier:cursory\" OR tag:\"tier:bulk\" OR tag:\"tier:junk\")"
-  "Query for unclassified messages.  Restrict this to staging folders if desired."
-  :type 'string :group 'mailx-views)
-
 (defcustom mailx-views-records-query "tag:retain OR tag:receipt"
   "Query for saved receipts and records."
   :type 'string :group 'mailx-views)
@@ -60,7 +56,7 @@ Each element is a bookmark plist with `:name', `:query' and `:key'."
 (defun mailx-views-bookmarks ()
   "Return the attention bookmarks for the current configuration."
   (append
-   (list (list :name "Unclassified" :query mailx-views-unclassified-query :key ?u))
+   (list (list :name "Unclassified" :query mailx-unclassified-query :key ?u))
    (seq-map (lambda (tier)
               (list :name (nth 1 tier) :query (mailx-views-tier-query (car tier))
                     :key (nth 2 tier)))

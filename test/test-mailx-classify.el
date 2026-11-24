@@ -311,5 +311,26 @@
             (should (equal (map-elt res :unresolved) (list message)))))
       (delete-directory root t))))
 
+(ert-deftest mailx-classify-batch-uses-shared-unclassified-query ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (mailx-unclassified-query "maildir:/staging")
+         (seen nil))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find)
+                   (lambda (_root query &rest _) (setq seen query) nil)))
+          (mailx-classify-batch root '(:dry-run t))
+          (should (equal seen "maildir:/staging"))
+          (mailx-classify-batch root '(:dry-run t :query "explicit"))
+          (should (equal seen "explicit")))
+      (delete-directory root t))))
+
+(ert-deftest mailx-unclassified-query-old-names-are-aliases ()
+  (should (eq 'mailx-unclassified-query (indirect-variable 'mailx-views-unclassified-query)))
+  (should (eq 'mailx-unclassified-query (indirect-variable 'mailx-mcp-unclassified-query)))
+  (let ((mailx-views-unclassified-query "q1"))
+    (should (equal mailx-unclassified-query "q1")))
+  (let ((mailx-mcp-unclassified-query "q2"))
+    (should (equal mailx-unclassified-query "q2"))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here
