@@ -84,7 +84,8 @@
     (unwind-protect
         (progn
           (make-directory (expand-file-name ".mu" root))
-          (let ((mailx-mcp-allowed-roots (list root)))
+          (let ((mailx-mcp-allowed-roots (list root))
+                (mailx-mcp-direct-rule-writes t))
             (let ((res (mailx-mcp--add-rule
                         root '(:id "either" :folder "/y"
                                :match (:or (:from "b@example") (:from "c@example"))))))
@@ -97,6 +98,68 @@
                                            :status)))
             (should (equal 2 (length (mailx-rules-load root t))))))
       (delete-directory root t))))
+
+(ert-deftest test-mailx-mcp-add-rule-stages-a-plan-instead-of-writing ()
+  (let ((root (make-temp-file "mailx-mcp-test-" t))
+        (mailx-mcp-direct-rule-writes nil)
+        (created nil))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name ".mu" root))
+          (let ((mailx-mcp-allowed-roots (list root)))
+            (cl-letf (((symbol-function 'mailx-bulk-ensure-domain) #'ignore)
+                      ((symbol-function 'hitl-plan-create)
+                       (lambda (&rest args) (setq created args) (hitl-plan--make :id "plan-7")))
+                      ((symbol-function 'mailx-rules-save)
+                       (lambda (&rest _) (error "must not save")))
+                      ((symbol-function 'mailx-rules-export-all)
+                       (lambda (&rest _) (error "must not export"))))
+              (let ((res (mailx-mcp--add-rule
+                          root '(:id "r1" :folder "/y" :match (:from "b@example")))))
+                (should (equal "pending_review" (plist-get res :status)))
+                (should (equal "plan-7" (plist-get res :plan_id)))
+                (should (string-match-p "human" (plist-get res :message)))
+                (should (eq 'mailx (plist-get created :domain)))
+                (let* ((step (car (plist-get created :ops)))
+                       (rule (car (cdr step))))
+                  (should (eq 'promote-rule (car step)))
+                  (should (eq 'r1 (mailx-rule-id rule))))
+                (should (equal (file-name-as-directory root)
+                               (file-name-as-directory
+                                (map-elt (car (plist-get created :targets)) :root)))))
+              ;; Validation still happens before staging.
+              (should-error (mailx-mcp--add-rule
+                             root '(:id "bad" :match (:from "\\(a+\\)+$"))))
+              (should-error (mailx-mcp--add-rule root '(:match (:from "x")))))))
+      (delete-directory root t))))
+
+(ert-deftest test-mailx-mcp-staged-rule-plan-round-trips-and-applies ()
+  (let ((root (make-temp-file "mailx-mcp-test-" t))
+        (dir (make-temp-file "mailx-mcp-plans-" t)))
+    (unwind-protect
+        (progn
+          (make-directory (expand-file-name ".mu" root))
+          (let ((mailx-mcp-allowed-roots (list root))
+                (hitl-plan-directory dir))
+            (mailx-bulk-ensure-domain)
+            (cl-letf (((symbol-function 'mailx-bulk-plan-directory) (lambda () dir)))
+              (let* ((res (mailx-mcp--add-rule
+                           root '(:id "r1" :folder "/y" :match (:from "b@example"))))
+                     (plan (hitl-plan-load (plist-get res :plan_id) dir))
+                     (step (car (hitl-plan-steps plan)))
+                     (op (hitl-plan-step-op step))
+                     (target (hitl-plan-step-target step)))
+                (should (equal 0 (length (mailx-rules-load root t))))
+                (should (mailx-rule-p (car (hitl-plan-op-args op))))
+                (should (equal target (mailx-bulk--resolve-target target)))
+                (let ((hitl-plan-current-target target))
+                  (apply #'mailx-bulk--promote-rule-apply (hitl-plan-op-args op)))
+                (should (equal '(r1) (seq-map #'mailx-rule-id (mailx-rules-load root t))))
+                (let ((hitl-plan-current-target target))
+                  (should-error (apply #'mailx-bulk--promote-rule-apply
+                                       (hitl-plan-op-args op))))))))
+      (delete-directory root t)
+      (delete-directory dir t))))
 
 (ert-deftest test-mailx-mcp-list-messages-rejects-empty-shared-query ()
   (let ((root (make-temp-file "mailx-mcp-test-" t)))

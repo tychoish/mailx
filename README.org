@@ -29,7 +29,7 @@ tools.
 - *Attention-Oriented Views*: Five attention tiers (~reply~, ~read~, ~cursory~, ~bulk~, ~junk~) with dynamic unread count annotations and custom headers columns.
 - *Reviewable Bulk Triage*: Stage and execute batch mail operations (~mark-read~, ~refile~, ~tag~, ~unsubscribe~, ~block-sender~, ~expire-older~) using Human-in-the-Loop plans.
 - *Context-Aware Org Integration*: Context-qualified ~mailx:~ link types that switch database contexts automatically before jumping to messages.
-- *MCP Service*: Headless inspection tools (~list_unclassified~, ~test_rule~, ~add_rule~, ~stage_triage_plan~) guarded by path allowlists.
+- *MCP Service*: Headless inspection tools (~list_unclassified~, ~test_rule~, ~add_rule~, ~stage_triage_plan~) guarded by path allowlists.  ~add_rule~ only stages a one-step hitl plan (op ~promote-rule~) for human review and returns the plan id; set ~mailx-mcp-direct-rule-writes~ to non-nil to persist and export immediately.
 
 * Installation
 :PROPERTIES:

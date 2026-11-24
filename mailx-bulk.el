@@ -83,24 +83,28 @@ Only a single exact Message-ID match inside ROOT is accepted.  Never trust a
 stored path alone: Maildir files can be renamed or replaced after staging."
   (let ((root (map-elt target :root))
         (id (map-elt target :message-id)))
-    (when (and (stringp root) (file-directory-p root)
-               (mailx-bulk-message-id-valid-p id))
-      (let ((matches (seq-filter
-                      (lambda (message)
-                        (and (equal id (map-elt message :message-id))
-                             (stringp (map-elt message :path))
-                             (file-regular-p (map-elt message :path))
-                             (file-in-directory-p (file-truename (map-elt message :path))
-                                                  (file-truename root))))
-                      (mailx--mu-find root (mailx-bulk--msgid-query id)))))
-        (when (= (length matches) 1)
-          (append (car matches) (list :root root :context (map-elt target :context))))))))
+    (if (eq (map-elt target :kind) 'rule)
+        (when (and (stringp root) (file-directory-p root))
+          target)
+      (when (and (stringp root) (file-directory-p root)
+                 (mailx-bulk-message-id-valid-p id))
+        (let ((matches (seq-filter
+                        (lambda (message)
+                          (and (equal id (map-elt message :message-id))
+                               (stringp (map-elt message :path))
+                               (file-regular-p (map-elt message :path))
+                               (file-in-directory-p (file-truename (map-elt message :path))
+                                                    (file-truename root))))
+                        (mailx--mu-find root (mailx-bulk--msgid-query id)))))
+          (when (= (length matches) 1)
+            (append (car matches) (list :root root :context (map-elt target :context)))))))))
 
 (defun mailx-bulk--require-resolved (target)
   "Resolve TARGET like `mailx-bulk--resolve-target', or signal an error.
 Apply functions use this so hitl marks the step failed instead of done when
 the message changed or vanished after the plan was reviewed."
-  (or (mailx-bulk--resolve-target target)
+  (or (and (not (eq (map-elt target :kind) 'rule))
+           (mailx-bulk--resolve-target target))
       (error "Mail target no longer resolves: %s"
              (or (map-elt target :subject) (map-elt target :message-id) "unknown message"))))
 
@@ -364,7 +368,10 @@ asserted; the reviewer is expected to have stopped other writers."
   "Persist proposed RULE into active root."
   (when-let* ((target (and (boundp 'hitl-plan-current-target) hitl-plan-current-target))
               (root (map-elt target :root)))
-    (mailx-rules-save root (append (mailx-rules-load root) (list rule)))))
+    (let ((rules (mailx-rules-load root)))
+      (when (seq-some (lambda (r) (eq (mailx-rule-id r) (mailx-rule-id rule))) rules)
+        (error "Rule ID already exists: %s" (mailx-rule-id rule)))
+      (mailx-rules-save root (append rules (list rule))))))
 
 (defun mailx-bulk--register-ops ()
   "Register bulk triage operations under the `mailx' domain."

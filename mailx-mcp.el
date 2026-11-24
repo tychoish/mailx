@@ -11,7 +11,7 @@
 
 ;;; Commentary:
 ;; Explicitly register a service for inspecting a chosen local mail database.
-;; Rule persistence and bulk actions require separate review and are not exposed.
+;; Rule additions and bulk actions are staged as hitl plans for human review.
 
 ;;; Code:
 
@@ -30,12 +30,19 @@
 (declare-function make-mailx-rule "mailx-rules" (&rest plist))
 (declare-function mailx--validate-rule "mailx-rules" (rule))
 (declare-function hitl-plan-create "hitl-plan" (&rest plist))
+(declare-function hitl-plan-id "hitl-plan" (plan))
 
 (defgroup mailx-mcp nil "Mail inspection over MCP." :group 'mail)
 
 (defcustom mailx-mcp-allowed-roots nil
   "Mail roots authorized for MCP inspection.  An empty list denies access."
   :type '(repeat directory) :group 'mailx-mcp)
+
+(defcustom mailx-mcp-direct-rule-writes nil
+  "When non-nil, the `add_rule' tool persists and exports rules immediately.
+By default it stages a one-step hitl plan that a human must approve, because a
+rule is also exported to delivery-time configuration."
+  :type 'boolean :group 'mailx-mcp)
 
 (defun mailx-mcp--root (root)
   "Validate ROOT against the configured canonical local root allowlist."
@@ -109,7 +116,9 @@
     (mailx-test-rule root rule)))
 
 (defun mailx-mcp--add-rule (root rule-data)
-  "Persist validated RULE-DATA to ROOT's rule store and update export filters."
+  "Stage validated RULE-DATA for human review in ROOT's rule store.
+When `mailx-mcp-direct-rule-writes' is non-nil, persist it and update the
+export filters immediately instead."
   (setq root (mailx-mcp--root root))
   (let* ((id (intern (format "%s" (or (map-elt rule-data :id)
                                       (error "Rule must have an :id")))))
@@ -126,19 +135,32 @@
     (mailx-check-rule-regexps match)
     (when (seq-some (lambda (r) (eq (mailx-rule-id r) id)) existing)
       (error "Rule ID already exists: %s" id))
-    (mailx-rules-save root (append existing (list rule)))
-    ;; The rule is already persisted; an export problem is reported, not fatal.
-    (let ((export (condition-case err
-                      (mailx-rules-export-all root)
-                    (error (list :error (error-message-string err))))))
-      (append
-       (list :status "ok" :id (symbol-name id) :total_rules (length (mailx-rules-load root)))
-       (when (plist-get export :error)
-         (list :export_error (plist-get export :error)))
-       (when (plist-get export :skipped)
-         (list :skipped (vconcat (seq-map (lambda (pair)
-                                            (format "%s: %s" (car pair) (cdr pair)))
-                                          (plist-get export :skipped)))))))))
+    (if mailx-mcp-direct-rule-writes
+        (progn
+          (mailx-rules-save root (append existing (list rule)))
+          ;; The rule is already persisted; an export problem is reported, not fatal.
+          (let ((export (condition-case err
+                            (mailx-rules-export-all root)
+                          (error (list :error (error-message-string err))))))
+            (append
+             (list :status "ok" :id (symbol-name id) :total_rules (length (mailx-rules-load root)))
+             (when (plist-get export :error)
+               (list :export_error (plist-get export :error)))
+             (when (plist-get export :skipped)
+               (list :skipped (vconcat (seq-map (lambda (pair)
+                                                  (format "%s: %s" (car pair) (cdr pair)))
+                                                (plist-get export :skipped))))))))
+      (mailx-bulk-ensure-domain)
+      (let* ((plan (hitl-plan-create
+                    :domain 'mailx
+                    :description (format "mcp add rule %s" id)
+                    :ops (list (list 'promote-rule rule))
+                    :targets (list (list :root root :kind 'rule :context "rule"
+                                         :subject (format "Add rule %s" id)))))
+             (plan-id (hitl-plan-id plan)))
+        (list :status "pending_review" :id (symbol-name id) :plan_id plan-id
+              :message (format "Rule %s is NOT active: it is staged in plan %s and awaits human review and approval."
+                               id plan-id))))))
 
 (defun mailx-mcp--stage-triage-plan (root title items)
   "Create a `mailx' hitl-plan for ITEMS in ROOT."
@@ -181,7 +203,7 @@
                       :required ["root" "rule"])
       (mailx-mcp--test-rule (map-elt args :root) (map-elt args :rule)))
     (mcpkit-register-tool add_rule service
-      :description "Add and persist a new classification rule to an authorized mail root."
+      :description "Propose a new classification rule for an authorized mail root.  The rule is staged in a hitl plan and takes effect only after a human approves it."
       :input-schema '(:type "object"
                       :properties (:root (:type "string")
                                    :rule (:type "object"
