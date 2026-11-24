@@ -192,7 +192,7 @@ PARENT is a classification from `mailx-thread-parent-classification'."
                                 (member address correspondents)) addresses)))
       (cond
        (unsubscribed-p (list :tier 'junk :tags '("unsubscribed")))
-       (parent parent)
+       ((and parent (map-elt parent :tier)) parent)
        (known-p (list :tier 'reply))
        ((mailx--receipt-p message)
         (list :tier 'cursory :tags '("receipt" "retain")))
@@ -313,6 +313,8 @@ Without :gptel-backend an unresolved result is nil.  No message is changed."
                    (mailx-thread-parent-classification root message sent-query)))
          (result (or (mailx-classify-stage1 message rules correspondents unsubscribed parent)
                      (mailx-classify-stage2 message))))
+    (unless (map-elt result :tier)
+      (setq result nil))
     (if (or result (not (map-elt options :gptel-backend)))
         (funcall callback result)
       (mailx-classify-stage3-gptel message callback (map-elt options :gptel-backend)))))
@@ -487,7 +489,8 @@ The correspondent cache is refreshed from :sent-query, else `mailx-sent-query'."
        (let ((res nil))
          (mailx-classify-message
           msg rules
-          (lambda (classification) (setq res classification))
+          (lambda (classification)
+            (setq res (and (map-elt classification :tier) classification)))
           (list :root root :sent-query sent-query))
          (unless res (push msg unresolved))
          (when res

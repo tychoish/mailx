@@ -286,5 +286,30 @@
               (should (equal (map-elt res :unresolved) (list miss))))))
       (delete-directory root t))))
 
+(ert-deftest mailx-classify-stage1-ignores-tierless-parent ()
+  (let ((parent '(:folder "/INBOX" :tier nil :tags ("x"))))
+    (should (eq 'reply (map-elt (mailx-classify-stage1
+                                 '(:from "a@example.org") nil '("a@example.org") nil parent)
+                                :tier)))
+    (should-not (mailx-classify-stage1 '(:subject "hello") nil nil nil parent))
+    (should (eq 'read (map-elt (mailx-classify-stage1
+                                '(:subject "hello") nil nil nil
+                                '(:folder "/INBOX" :tier read))
+                               :tier)))))
+
+(ert-deftest mailx-classify-batch-tierless-result-is-unresolved ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (message '(:subject "hi" :path "/fake/a" :maildir "/inbox")))
+    (unwind-protect
+        (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) (list message)))
+                  ((symbol-function 'mailx-classify-message)
+                   (lambda (_m _r callback &optional _o)
+                     (funcall callback '(:folder "/x" :tier nil)))))
+          (let ((res (mailx-classify-batch root '(:dry-run t))))
+            (should (= (map-elt res :classified) 0))
+            (should-not (map-elt res :results))
+            (should (equal (map-elt res :unresolved) (list message)))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here
