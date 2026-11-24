@@ -73,10 +73,45 @@
                (or (null (mailx-rule-expire-days rule))
                    (and (integerp (mailx-rule-expire-days rule))
                         (> (mailx-rule-expire-days rule) 0))))
-    (error "Invalid mailx rule: %S" rule))
+    (if (mailx-rule-p rule)
+        (error "Invalid mailx rule %s: check id, folder (leading slash, no ..), tier, tags and expire-days"
+               (mailx-rule-id rule))
+      (error "Invalid mailx rule: %S" rule)))
   ;; Validation also checks the shape and regex of the condition.
   (mailx-eval-condition (mailx-rule-match rule) nil)
   rule)
+
+(defun mailx--parse-rules-buffer (file)
+  "Parse and validate the rules in the current buffer, read from FILE.
+Signal a `user-error' naming FILE, the entry index and rule id on failure."
+  (let ((data (condition-case err
+                  (prog1 (read (current-buffer))
+                    (skip-chars-forward " \t\r\n")
+                    (unless (eobp)
+                      (error "unexpected data after the rule list")))
+                (error (user-error "Cannot read rules file %s: %s"
+                                   file (error-message-string err)))))
+        (seen (make-hash-table :test #'eq))
+        (index -1))
+    (unless (listp data)
+      (user-error "Invalid rules file %s: not a list of rules" file))
+    (seq-map
+     (lambda (entry)
+       (setq index (1+ index))
+       (let* ((id (and (consp entry) (plist-get entry :id)))
+              (rule (condition-case err
+                        (mailx--validate-rule (apply #'make-mailx-rule entry))
+                      (error (user-error "Invalid rule in %s (index %d%s): %s"
+                                         file index
+                                         (if id (format ", id %s" id) "")
+                                         (error-message-string err)))))
+              (first (map-elt seen (mailx-rule-id rule))))
+         (when first
+           (user-error "Duplicate rule id %s in %s (indexes %d and %d)"
+                       (mailx-rule-id rule) file first index))
+         (setf (map-elt seen (mailx-rule-id rule)) index)
+         rule))
+     data)))
 
 ;;;###autoload
 (defun mailx-rules-load (root &optional refresh)
@@ -96,11 +131,7 @@
           (goto-char (point-min))
           (let ((rules
                  (unless (eq digest 'absent)
-                   (let ((data (read (current-buffer))))
-                     (unless (listp data) (error "Invalid rule store"))
-                     (seq-map (lambda (entry)
-                                (mailx--validate-rule (apply #'make-mailx-rule entry)))
-                              data)))))
+                   (mailx--parse-rules-buffer file))))
             (setf (map-elt mailx--rules-cache root) (cons digest rules))
             rules))))))
 
