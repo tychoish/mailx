@@ -213,5 +213,23 @@
               (should (= (map-elt res :moved) 0)))))
       (delete-directory root t))))
 
+(ert-deftest mailx-classify-batch-reports-move-errors ()
+  (let* ((root (make-temp-file "mailx-batch-" t))
+         (path (expand-file-name "msg" root))
+         (rule (make-mailx-rule :id 'r1 :match '(:subject "hi") :folder "/archive" :tier 'read))
+         (message (list :subject "hi" :path path :maildir "/inbox")))
+    (unwind-protect
+        (progn
+          (write-region "" nil path)
+          (mailx-rules-save root (list rule))
+          (cl-letf (((symbol-function 'mailx--mu-find) (lambda (&rest _) (list message))))
+            (let ((res (mailx-classify-batch root '(:dry-run nil))))
+              (should (= (map-elt res :moved) 0))
+              (should (= (length (map-elt res :errors)) 1))
+              (should (equal (car (car (map-elt res :errors))) path))
+              (should (string-match-p "exclusive access"
+                                      (cdr (car (map-elt res :errors))))))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here

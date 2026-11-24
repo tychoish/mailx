@@ -429,7 +429,8 @@ OPTIONS is an optional plist supporting:
   :dry-run - if non-nil, don't move or stamp files
   :coordination - must be `exclusive-access' to perform mutations
   :update-index - if non-nil, run mu index --lazy-check after moving files
-Return a summary plist (:processed N :classified M :moved K :results LIST)."
+Return a summary plist (:processed N :classified M :moved K :errors LIST
+:results LIST), where :errors holds (PATH . MESSAGE) for each failed move."
   (let* ((root (file-name-as-directory (file-truename root)))
          (dry-run (map-elt options :dry-run))
          (coordination (map-elt options :coordination))
@@ -441,6 +442,7 @@ Return a summary plist (:processed N :classified M :moved K :results LIST)."
          (processed 0)
          (classified 0)
          (moved 0)
+         (errors nil)
          (results nil))
     (seq-do
      (lambda (msg)
@@ -459,18 +461,19 @@ Return a summary plist (:processed N :classified M :moved K :results LIST)."
              (push (list :path path :folder folder :tier tier :tags tags :classification res)
                    results)
              (when (and (not dry-run) folder tier path (file-exists-p path))
-               (condition-case _err
+               (condition-case err
                    (progn
                      (mailx-stamp-and-move path root folder tier tags coordination)
                      (setq moved (1+ moved)))
-                 (error nil)))))))
+                 (error (push (cons path (error-message-string err)) errors))))))))
      messages)
     (when (and (not dry-run) (> moved 0) (map-elt options :update-index)
                (executable-find "mu"))
       (process-file "mu" nil nil nil "index"
                     (concat "--muhome=" (expand-file-name ".mu" root))
                     "--lazy-check"))
-    (list :processed processed :classified classified :moved moved :results (nreverse results))))
+    (list :processed processed :classified classified :moved moved
+          :errors (nreverse errors) :results (nreverse results))))
 
 (provide 'mailx-classify)
 ;;; mailx-classify.el ends here
