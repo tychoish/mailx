@@ -381,5 +381,42 @@
           (should (seq-find (lambda (m) (string-match-p "mailx: classified 0 of 12" m)) logged)))
       (delete-directory root t))))
 
+(defun test-mailx-classify--maildir-fixture (root name)
+  "Create synthetic Maildir folders under ROOT and a source message NAME."
+  (let ((source (expand-file-name (concat "in/cur/" name) root)))
+    (seq-do (lambda (dir) (make-directory (expand-file-name dir root) t))
+            '("in/cur" "out/new" "out/cur" "out/tmp"))
+    (write-region "From: a\nSubject: hi\n\nbody\n" nil source nil 'silent)
+    source))
+
+(ert-deftest mailx-stamp-and-move-keeps-base-name-and-flags ()
+  (let* ((root (make-temp-file "mailx-test-" t))
+         (source (test-mailx-classify--maildir-fixture root "1700.abc.host:2,RS")))
+    (unwind-protect
+        (let ((target (mailx-stamp-and-move source root "/out" 'read nil 'exclusive-access)))
+          (should (equal (file-name-nondirectory target) "1700.abc.host:2,RS"))
+          (should (equal (file-name-directory target)
+                         (file-name-as-directory
+                          (expand-file-name "out/cur" (file-truename root)))))
+          (should-not (file-exists-p source))
+          (should-not (directory-files (expand-file-name "out/tmp" root) nil "\\`[^.]")))
+      (delete-directory root t))))
+
+(ert-deftest mailx-stamp-and-move-collision-does-not-overwrite ()
+  (let* ((root (make-temp-file "mailx-test-" t))
+         (source (test-mailx-classify--maildir-fixture root "1700.abc.host:2,S"))
+         (existing (expand-file-name "out/cur/1700.abc.host:2,S" root)))
+    (unwind-protect
+        (progn
+          (write-region "precious" nil existing nil 'silent)
+          (let ((target (mailx-stamp-and-move source root "/out" 'read nil 'exclusive-access)))
+            (should-not (equal (file-name-nondirectory target) "1700.abc.host:2,S"))
+            (should (string-prefix-p "1700.abc.host" (file-name-nondirectory target)))
+            (should (string-suffix-p ":2,S" target))
+            (should (file-exists-p target))
+            (should (equal "precious"
+                           (with-temp-buffer (insert-file-contents existing) (buffer-string))))))
+      (delete-directory root t))))
+
 (provide 'test-mailx-classify)
 ;;; test-mailx-classify.el ends here

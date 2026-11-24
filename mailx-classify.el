@@ -368,7 +368,9 @@ Without :gptel-backend an unresolved result is nil.  No message is changed."
 (defun mailx-stamp-and-move (path root target-folder tier &optional tags coordination)
   "Stamp TIER and TAGS on PATH and move it under ROOT to TARGET-FOLDER.
 TARGET-FOLDER is a relative Maildir folder name, optionally beginning with
-slash.  The destination Maildir must exist.  Return the new path.
+slash.  The destination Maildir must exist.  The message keeps its base name
+and flags suffix; on a name collision a numeric suffix is added to the base
+name and nothing is overwritten.  Return the new path.
 COORDINATION must be the symbol `exclusive-access', declaring that the
 caller has independently stopped every process that can access the source
 or destination.  This function cannot lock out delivery or sync clients."
@@ -413,7 +415,15 @@ or destination.  This function cannot lock out delivery or sync clients."
       (error "Source or destination is not a valid local Maildir"))
     (let* ((attrs (file-attributes source 'integer))
            (temp (make-temp-file (expand-file-name "mailx-" tmp-dir)))
-           (target (expand-file-name (concat (file-name-nondirectory temp) info) target-dir)))
+           (base (string-remove-suffix info (file-name-nondirectory source)))
+           (name (seq-find (lambda (candidate)
+                             (let ((path (expand-file-name (concat candidate info) target-dir)))
+                               (not (or (file-exists-p path) (file-symlink-p path)))))
+                           (cons base (seq-map (lambda (n) (format "%s-%d" base n))
+                                               (number-sequence 1 999)))))
+           (target (progn
+                     (unless name (error "No free Maildir name for %s" base))
+                     (expand-file-name (concat name info) target-dir))))
       (unwind-protect
           (progn
             (with-temp-buffer
