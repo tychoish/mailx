@@ -168,6 +168,50 @@ Exclusive Maildir access is asserted only when the hitl plan is applied, so stop
 
 Set ~mailx-sent-query~ to a mu query matching mail you sent.  Batch classification then keeps the correspondent cache fresh (see ~mailx-correspondents-max-age-days~) so mail from people you write to is proposed as ~reply~.  Without it, the cache is not refreshed and the batch summary reports ~skipped-no-sent-query~.
 
+** Classification Rules
+:PROPERTIES:
+:CUSTOM_ID: classification-rules
+:END:
+
+Rules are stored per mail root in ~tools/mailx-rules.eld~ (see ~mailx-rules-filename~; the path is ~<root>/tools/mailx-rules.eld~ by default).  The file holds one Lisp list of property lists, read with ~read~, and it is safe to edit by hand.  A file that fails to load is reported with its path, the entry index and the rule id; duplicate ids and data after the list are rejected.
+
+#+begin_src emacs-lisp
+((:id example-news :match (:and (:from "news@example\\.com") (:has-unsubscribe))
+  :folder "/archive" :tier cursory :tags ("newsletter")
+  :expire-days 30 :source manual :created "2026-11-23"))
+#+end_src
+
+| Field | Meaning |
+|---|---|
+| ~:id~ | Unique symbol naming the rule. |
+| ~:match~ | Condition, see below. |
+| ~:folder~ | Destination maildir, must start with ~/~ and contain no ~..~; ~nil~ keeps the message where it is. |
+| ~:tier~ | One of ~reply~, ~read~, ~cursory~, ~bulk~, ~junk~, or ~nil~. |
+| ~:tags~ | List of strings without whitespace, control characters or commas. |
+| ~:expire-days~ | Optional positive integer retention hint stored with the rule; mailx does not act on it. |
+| ~:source~ | Provenance symbol (~manual~, ~imported~, ~mcp~, ...). |
+| ~:created~ | Creation date string. |
+
+Conditions are lists whose first element is an operator.  Patterns are Emacs regular expressions, matched case-insensitively against the message fields; address fields are searched by both display name and address.
+
+| Operator | Matches |
+|---|---|
+| ~(:from RE)~ | The From header. |
+| ~(:to RE)~ | The To or Cc headers. |
+| ~(:delivered-to RE)~ | The Delivered-To or X-Forwarded-To headers. |
+| ~(:list RE)~ | The mailing list id. |
+| ~(:subject RE)~ | The subject. |
+| ~(:maildir RE)~ | The message's current maildir, for example ~/inbox~. |
+| ~(:tag STRING)~ | A tag equal to STRING (exact, case-sensitive; not a regexp). |
+| ~(:has-unsubscribe)~ | The message has a List-Id or List-Unsubscribe header. |
+| ~(:and C...)~, ~(:or C...)~, ~(:not C)~ | Boolean combinations; ~:and~ and ~:or~ need at least one operand and ~:not~ exactly one. |
+
+*The first matching rule wins*, in file order.  A broad rule above a specific one shadows it: with ~(:from "example")~ to ~junk~ listed before ~(:from "boss@example")~ to ~reply~, mail from ~boss@example.com~ is classified ~junk~ and the second rule never fires.  Keep specific rules first.
+
+Emacs cannot interrupt a regexp match, so a pattern with a quantified group that contains a quantifier, such as ~\(a*\)*b~, can freeze Emacs.  New rules containing that shape are rejected and existing ones produce a warning when loaded.  This is a heuristic, not a guarantee.
+
+Rules also drive delivery-time filters.  ~mailx-rules-export-all~ writes ~tools/mailx-generated.procmailrc~ and ~tools/fdm.conf~ beside the rules file; do not edit those by hand.  Conditions a delivery agent cannot evaluate (~:maildir~, ~:tag~, and ~:or~ for procmail) are skipped for that target and reported under ~:skipped~ in the result.  In the review buffer, ~r~ promotes the entry at point to a new rule (see above), which is appended after existing rules and therefore never shadows them, but may itself be shadowed.
+
 * API Reference
 :PROPERTIES:
 :CUSTOM_ID: api-reference
